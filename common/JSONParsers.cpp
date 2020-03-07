@@ -9,37 +9,89 @@
 #include "testdoc.h"
 
 
+// Exceptions thrown by templated code.
+ParserException NotFinished("Item not finished.");
+ParserException InvalidArrayStart("Expected '['");
+ParserException InvalidArraySeparator("Array, expected ','");
+ParserException InvalidObjectStart("Expected '{'");
+ParserException InvalidKeySeparator("Object, expected ','");
+ParserException InvalidKey("Object, unexpected key.");
+ParserException InvalidValueSeparator("Object, expected ':'");
+ParserException RequiredKeyNotGiven("Object, required key not given.");
+
+
+ParserPool::~ParserPool() { }
+
+const char* SimpleValueParser::setFinished(const char* Endptr, ParserPool& Pool)
+{
+    finished = Endptr != nullptr;
+    if (finished)
+        Pool.buffer.resize(0);
+    return Endptr;
+}
+
+const char* SimpleValueParser::setFinished(const char* Endptr) {
+    finished = Endptr != nullptr;
+    return Endptr;
+}
+
 SimpleValueParser::~SimpleValueParser() { }
 
 static ParserException InvalidFloat("Invalid float.");
-static ParserException NoFloat("No float.");
 
-bool ParseFloat::Scan(const char* Current) noexcept(false) {
-    if ('0' <= *Current && *Current <= '9' || *Current == '.' ||
-        *Current == 'e' || *Current == 'E' ||
-        *Current == '-' || *Current == '+')
-    {
-        buffer.push_back(*Current);
-        return false;
-    }
-    // First non-float character triggers conversion.
-    // Separator scan will throw if the string in source is not a number.
-    if (buffer.size() == 0)
-        throw NoFloat;
-    std::string s(buffer.begin(), buffer.end());
+const char* ParseFloat::Scan(
+    const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
+{
+    Type& out(std::get<ParseFloat::Pool::Index>(Pool.Value));
     char* end = nullptr;
+    if (Pool.buffer.empty()) {
+        // Assumes LC_NUMERIC is "C" or close enough for decimal point.
+        out = strtof(Begin, &end);
+        if (end != Begin && end != End) {
+            // Detect hexadecimal significand, exponent, INF, NAN. "."
+            while (Begin != end &&
+                (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||
+                *Begin == 'e' || *Begin == 'E' ||
+                *Begin == '-' || *Begin == '+'))
+                    ++Begin;
+            if (Begin != end)
+                throw InvalidFloat;
+            return setFinished(end, Pool); // Good up to this. Caller checks separator.
+        }
+        // Copy good chars to buffer. Either end cut off or invalid.
+        while (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||
+            *Begin == 'e' || *Begin == 'E' ||
+            *Begin == '-' || *Begin == '+')
+                Pool.buffer.push_back(*Begin++);
+        if (Begin != End) // Did not reach end of buffer, hence invalid.
+            throw InvalidFloat;
+        return setFinished(nullptr, Pool);
+    }
+    // Start of the number is in buffer. Input is null-terminated.
+    while (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||
+        *Begin == 'e' || *Begin == 'E' ||
+        *Begin == '-' || *Begin == '+')
+            Pool.buffer.push_back(*Begin++);
+    if (Begin == End) // Continues on and on?
+        return setFinished(nullptr, Pool);
+    std::string s(Pool.buffer.begin(), Pool.buffer.end());
     out = strtof(s.c_str(), &end);
+    // Separator scan will throw if the string in source is not a number.
+    // Require that all chars are the number as there was no separator copied.
     if (end != s.c_str() + s.size())
         throw InvalidFloat;
-    return true;
+    return setFinished(Begin, Pool);
 }
 
 
+static ParserException StringStart("Expected '\"'.");
 static ParserException StringEscape("String with unknown escape.");
 static ParserException StringHexDigits("String with invalid hex digits.");
 static ParserException StringInvalidCharacter("String with invalid character.");
 
-bool ParseString::Scan(const char* Current) noexcept(false) {
+bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
+    Type& out(std::get<Pool::Index>(Pool.Value));
+    auto&& buffer(Pool.buffer);
     if (!escaped && count == -1) {
         if (*Current != '\\') {
             if (*Current != '"') {
@@ -119,207 +171,799 @@ bool ParseString::Scan(const char* Current) noexcept(false) {
     return false;
 }
 
-bool SkipWhitespace::Scan(const char* Current) noexcept(false) {
-    return !(*Current == ' ' ||
-        *Current == '\x9' || *Current == '\xA' || *Current == '\xD');
+const char* ParseString::Scan(
+    const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
+{
+    if (!began) {
+        std::get<Pool::Index>(Pool.Value).resize(0);
+        if (*Begin != '"')
+            throw StringStart;
+        began = true;
+        ++Begin;
+    }
+    while (Begin != End) {
+        if (scan(Begin, Pool)) {
+            began = false;
+            return setFinished(Begin + 1, Pool);
+        }
+        ++Begin;
+    }
+    return setFinished(nullptr, Pool);
 }
 
+const char* SkipWhitespace::Scan(
+    const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
+{
+    while (Begin != End &&
+        (*Begin == ' ' || *Begin == '\x9' || *Begin == '\xA' || *Begin == '\xD'))
+            ++Begin;
+    return setFinished((Begin != End) ? Begin : nullptr, Pool);
+}
+
+ScanningKeyValue::~ScanningKeyValue() { }
+
+ValueStore::~ValueStore() { }
+
+
+#if defined(TESTDOC_UNITTEST)
+
 TEST_CASE("Floats") {
-    std::vector<char> buffer;
-    float out;
-    ParseFloat parser(out, buffer);
-    char space(' ');
+    ParserPool pp;
+    float& out(std::get<ParserPool::Float>(pp.Value));
+    ParseFloat& parser(std::get<ParserPool::Float>(pp.Parser));
+    char space[] = " ";
     SUBCASE("123") {
-        buffer.resize(0);
-        std::string s("123");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("123 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == 123.0f);
     }
     SUBCASE("456.789") {
-        buffer.resize(0);
-        std::string s("456.789");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("456.789,");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == 456.789f);
     }
     SUBCASE("1e6") {
-        buffer.resize(0);
-        std::string s("1e6");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("1e6 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == 1e6f);
     }
     SUBCASE("2E6") {
-        buffer.resize(0);
-        std::string s("2E6");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("2E6 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == 2e6f);
     }
     SUBCASE("-1.2") {
-        buffer.resize(0);
-        std::string s("-1.2");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("-1.2 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == -1.2f);
     }
     SUBCASE("+0.9") {
-        buffer.resize(0);
-        std::string s("+0.9");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&space) == true);
+        pp.buffer.resize(0);
+        std::string s("+0.9 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == 0.9f);
     }
+    SUBCASE("+|0.9") {
+        pp.buffer.resize(0);
+        std::string s0("+");
+        std::string s("0.9 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 0.9f);
+    }
+    SUBCASE("-|0.9") {
+        pp.buffer.resize(0);
+        std::string s0("-");
+        std::string s("0.9 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == -0.9f);
+    }
+    SUBCASE("12|.9e1") {
+        pp.buffer.resize(0);
+        std::string s0("12");
+        std::string s(".9e1 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 129.0f);
+    }
+    SUBCASE("1.9|e-2") {
+        pp.buffer.resize(0);
+        std::string s0("1.9");
+        std::string s("e-2 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 1.9e-2f);
+    }
+    SUBCASE("1.9|ee-2") {
+        pp.buffer.resize(0);
+        std::string s0("1.9");
+        std::string s("ee-2 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("1.9|eex2") {
+        pp.buffer.resize(0);
+        std::string s0("1.9");
+        std::string s("eex2 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
     SUBCASE("empty") {
-        buffer.resize(0);
-        REQUIRE_THROWS_AS(parser.Scan(&space), ParserException);
+        pp.buffer.resize(0);
+        REQUIRE_THROWS_AS(parser.Scan(space, space + 1, pp), ParserException);
     }
     SUBCASE("1e3e") {
-        buffer.resize(0);
+        pp.buffer.resize(0);
         std::string s("1e3e");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE_THROWS_AS(parser.Scan(&space), ParserException);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 1e3f);
+    }
+    SUBCASE("0x1p3") {
+        pp.buffer.resize(0);
+        std::string s("0x1p3");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
     }
 }
 
 TEST_CASE("String and escapes") {
-    std::vector<char> buffer;
-    std::string out;
-    ParseString parser(out, buffer);
-    char quote('"');
+    ParserPool pp;
+    std::string& out(std::get<ParserPool::String>(pp.Value));
+    ParseString& parser(std::get<ParserPool::String>(pp.Parser));
     SUBCASE("empty") {
-        buffer.resize(0);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "");
     }
     SUBCASE("string") {
-        buffer.resize(0);
-        std::string s("string");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"string\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "string");
     }
+    SUBCASE("str|ing") {
+        pp.buffer.resize(0);
+        std::string s0("\"str");
+        std::string s("ing\"");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(out == "string");
+    }
+    SUBCASE("a\\|\"b") {
+        pp.buffer.resize(0);
+        std::string s0("\"a\\");
+        std::string s("\"b\"");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(out == "a\"b");
+    }
     SUBCASE("a\\\"b") {
-        buffer.resize(0);
-        std::string s("a\\\"b");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"a\\\"b\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "a\"b");
     }
     SUBCASE("a\\\"") {
-        buffer.resize(0);
-        std::string s("a\\\"");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"a\\\"\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "a\"");
     }
     SUBCASE("\\\"b") {
-        buffer.resize(0);
-        std::string s("\\\"b");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\\"b\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\"b");
     }
     SUBCASE("\\/\\\\\\b\\f\\n\\r\\t") {
-        buffer.resize(0);
-        std::string s("\\/\\\\\\b\\f\\n\\r\\t");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\/\\\\\\b\\f\\n\\r\\t\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "/\\\b\f\n\r\t");
+    }
+    SUBCASE("Invalid start") {
+        pp.buffer.resize(0);
+        std::string s("x");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
     }
     SUBCASE("Invalid escape") {
         std::string valid("\"/\\bfnrtu");
-        char escape('\\');
+        char escape[] = "\"\\ ";
         for (unsigned char u = 255; 31 < u; --u) {
-            ParseString p(out, buffer);
-            p.Scan(&escape);
-            char c(static_cast<char>(u));
-            if (valid.find(c) == std::string::npos)
-                REQUIRE_THROWS_AS(p.Scan(&c), ParserException);
+            escape[2] = static_cast<char>(u);
+            if (valid.find(escape[2]) == std::string::npos)
+                REQUIRE_THROWS_AS(parser.Scan(escape, escape + 3, pp), ParserException);
         }
     }
     SUBCASE("Too small") {
-        char c(0x1F);
-        REQUIRE_THROWS_AS(parser.Scan(&c), ParserException);
+        char c[] = "\" ";
+        c[1] = 0x1f;
+        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp), ParserException);
     }
     SUBCASE("Too small") {
-        char c(0x01);
-        REQUIRE_THROWS_AS(parser.Scan(&c), ParserException);
+        char c[] = "\" ";
+        c[1] = 0x1;
+        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp), ParserException);
     }
 }
 
 TEST_CASE("String Unicode") {
-    std::vector<char> buffer;
-    std::string out;
-    ParseString parser(out, buffer);
-    char quote('"');
+    ParserPool pp;
+    std::string& out(std::get<ParserPool::String>(pp.Value));
+    ParseString& parser(std::get<ParserPool::String>(pp.Parser));
     SUBCASE("\\u0079") {
-        buffer.resize(0);
-        std::string s("\\u0079");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\u0079\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(out == "\x79");
+    }
+    SUBCASE("\\u0|079") {
+        pp.buffer.resize(0);
+        std::string s0("\"\\u0");
+        std::string s("079\"");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\x79");
     }
     SUBCASE("\\u0080") {
-        buffer.resize(0);
-        std::string s("\\u0080");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\u0080\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\xC2\x80");
     }
     SUBCASE("\\u07FF") {
-        buffer.resize(0);
-        std::string s("\\u07FF");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\u07FF\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(out == "\xDF\xBF");
+    }
+    SUBCASE("\\u07|FF") {
+        pp.buffer.resize(0);
+        std::string s0("\"\\u07");
+        std::string s("FF\"");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\xDF\xBF");
     }
     SUBCASE("\\u0800") {
-        buffer.resize(0);
-        std::string s("\\u0800");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\u0800\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\xE0\xA0\x80");
     }
     SUBCASE("\\uFFFF") {
-        buffer.resize(0);
-        std::string s("\\uFFFF");
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(parser.Scan(iter) == false);
-        REQUIRE(parser.Scan(&quote) == true);
+        pp.buffer.resize(0);
+        std::string s("\"\\uFFFF\"");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\xEF\xBF\xBF");
     }
 }
 
-TEST_CASE("Spaces") {
-    SkipWhitespace skipper;
-    std::string s(" \x9\xA\xD");
+TEST_CASE("Whitespaces") {
+    ParserPool pp;
+    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(pp.Parser));
+    std::string s(" \x9\xA\xD z");
+    std::string sp(" \x9\xA\xD");
     SUBCASE("Valid spaces") {
-        for (const char* iter = s.c_str(); iter != s.c_str() + s.size(); ++iter)
-            REQUIRE(skipper.Scan(iter) == false);
+        REQUIRE(skipper.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(skipper.Scan(sp.c_str(), sp.c_str() + sp.size(), pp) == nullptr);
     }
     SUBCASE("Non-spaces") {
+        char ns[] = " ";
         for (unsigned char c = 255; c; --c)
-            if (s.find(c) == std::string::npos) {
-                char sc = static_cast<char>(c);
-               REQUIRE(skipper.Scan(&sc) == true);
+            if (sp.find(c) == std::string::npos) {
+                ns[0] = static_cast<char>(c);
+                REQUIRE(skipper.Scan(ns, ns + 1, pp) == ns);
             }
     }
 }
+
+TEST_CASE("Float array") {
+    ParserPool pp;
+    ParseArray<ParseFloat>::Type out;
+    SUBCASE("[]") {
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s("[]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.empty());
+    }
+    SUBCASE("[ ]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s("[ ]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.empty());
+    }
+    SUBCASE("[ 1 ]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s("[ 1 ]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0] == 1.0f);
+    }
+    SUBCASE("[ 1 ] again") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s("[ 1 ]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(parser.Finished());
+        s = std::string("[2]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished());
+        parser.Swap(out);
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0] == 2.0f);
+    }
+    SUBCASE("[1,2]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s("[1,2]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+    }
+    SUBCASE("[|]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[");
+        std::string s("]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.empty());
+    }
+    SUBCASE("[1,|2]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[1,");
+        std::string s("2]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+    }
+    SUBCASE("[1|,2]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[1");
+        std::string s(",2]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+    }
+    SUBCASE("[1.|0,2.0]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[1.");
+        std::string s("0,2.0]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+    }
+    SUBCASE("[1,2|.0]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[1,2");
+        std::string s(".0]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+    }
+    SUBCASE("[1,2|.0,3]") {
+        out.resize(0);
+        pp.buffer.resize(0);
+        ParseArray<ParseFloat> parser;
+        std::string s0("[1,2");
+        std::string s(".0,3]");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 3);
+        REQUIRE(out[0] == 1.0f);
+        REQUIRE(out[1] == 2.0f);
+        REQUIRE(out[2] == 3.0f);
+    }
+}
+
+TEST_CASE("Float array failures") {
+    ParserPool pp;
+    ParseArray<ParseFloat>::Type out;
+    SUBCASE("invalid") {
+        ParseArray<ParseFloat> parser;
+        std::string s("invalid");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("]") {
+        ParseArray<ParseFloat> parser;
+        std::string s("]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[,") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[ ,") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[ ,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[1,,") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[1,,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[1,]") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[1,]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[1 , ]") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[1 , ]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[1") {
+        ParseArray<ParseFloat> parser;
+        std::string s("[1");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == nullptr);
+        REQUIRE_THROWS_AS(parser.Swap(out), ParserException);
+    }
+}
+
+TEST_CASE("Float array array") {
+    ParserPool pp;
+    ParseContainerArray<ParseArray<ParseFloat>>::Type out;
+    SUBCASE("[[]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[]]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0].empty());
+    }
+    SUBCASE("[[1]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[1]]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0].size() == 1);
+        REQUIRE(out[0][0] == 1.0f);
+    }
+    SUBCASE("[[1],[2]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[1],[2]]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0].size() == 1);
+        REQUIRE(out[1].size() == 1);
+        REQUIRE(out[0][0] == 1.0f);
+        REQUIRE(out[1][0] == 2.0f);
+    }
+    SUBCASE("[[1,2],[3,4]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[1,2],[3,4]]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0].size() == 2);
+        REQUIRE(out[1].size() == 2);
+        REQUIRE(out[0][0] == 1.0f);
+        REQUIRE(out[0][1] == 2.0f);
+        REQUIRE(out[1][0] == 3.0f);
+        REQUIRE(out[1][1] == 4.0f);
+    }
+    SUBCASE("[[1],[]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[1],[]]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(out.size() == 2);
+        REQUIRE(out[0].size() == 1);
+        REQUIRE(out[1].empty());
+        REQUIRE(out[0][0] == 1.0f);
+    }
+}
+
+TEST_CASE("Array failures") {
+    ParserPool pp;
+    ParseContainerArray<ParseArray<ParseFloat>>::Type out;
+    SUBCASE("[[1][]]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[1][]]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("invalid") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("invalid");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[,") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[ ,") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[ ,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[[],,") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[],,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[[],]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[],]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[[] , ]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[] , ]");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("[[]") {
+        pp.buffer.resize(0);
+        ParseContainerArray<ParseArray<ParseFloat>> parser;
+        std::string s("[[]");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == nullptr);
+        REQUIRE_THROWS_AS(parser.Swap(out), ParserException);
+    }
+}
+
+static const char name[] = "name";
+static const char name2[] = "name2";
+
+TEST_CASE("Float KeyValue") {
+    ParserPool pp;
+    SUBCASE("1") {
+        KeyValue<name, ParseFloat> kv;
+        KeyValue<name, ParseFloat>::Type out;
+        std::string s("1 ");
+        REQUIRE(strcmp(kv.Key(), name) == 0);
+        REQUIRE(kv.Scanner(pp).Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        kv.Swap(out, pp);
+        REQUIRE(out == 1.0f);
+    }
+}
+
+TEST_CASE("Float array KeyValue") {
+    ParserPool pp;
+    SUBCASE("[1]") {
+        KeyContainerValue<name2, ParseArray<ParseFloat>> kv;
+        decltype(kv)::Type out;
+        std::string s("[1]");
+        REQUIRE(strcmp(kv.Key(), name2) == 0);
+        REQUIRE(kv.Scanner(pp).Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        kv.Swap(out, pp);
+        REQUIRE(out.size() == 1);
+        REQUIRE(out[0] == 1.0f);
+    }
+}
+
+TEST_CASE("KeyValues") {
+    ParserPool pp;
+    SUBCASE("One member") {
+        KeyValues<KeyValue<name, ParseFloat>> kvs;
+        REQUIRE(kvs.size() == 1);
+        REQUIRE(strcmp(std::get<0>(kvs.fields).Key(), name) == 0);
+    }
+    SUBCASE("Two members") {
+        KeyValues<KeyValue<name, ParseFloat>, KeyContainerValue<name2, ParseArray<ParseFloat>>> kvs;
+        REQUIRE(kvs.size() == 2);
+        REQUIRE(strcmp(std::get<0>(kvs.fields).Key(), name) == 0);
+        REQUIRE(strcmp(std::get<1>(kvs.fields).Key(), name2) == 0);
+    }
+    SUBCASE("One required member") {
+        KeyValues<RequiredKeyValue<name, ParseFloat>> kvs;
+        REQUIRE(kvs.size() == 1);
+        REQUIRE(strcmp(std::get<0>(kvs.fields).Key(), name) == 0);
+    }
+}
+
+TEST_CASE("KeyValue to Value swap") {
+    ParserPool pp;
+    SUBCASE("Float swap") {
+        KeyValues<KeyValue<name, ParseFloat>> kvs;
+        std::get<ParserPool::Float>(pp.Value) = 1.0f;
+        NamelessValues<Value<ParseFloat>> vs;
+        std::get<0>(kvs.fields).Swap(reinterpret_cast<ValueStore*>(&std::get<0>(vs.fields)), pp);
+        REQUIRE(std::get<0>(vs.fields).value == 1.0f);
+    }
+    SUBCASE("Required float swap") {
+        KeyValues<RequiredKeyValue<name, ParseFloat>> kvs;
+        std::get<ParserPool::Float>(pp.Value) = 1.0f;
+        NamelessValues<Value<ParseFloat>> vs;
+        std::get<0>(kvs.fields).Swap(reinterpret_cast<ValueStore*>(&std::get<0>(vs.fields)), pp);
+        REQUIRE(std::get<0>(vs.fields).value == 1.0f);
+    }
+}
+
+TEST_CASE("Object") {
+    ParserPool pp;
+    SUBCASE("{}") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+    }
+    SUBCASE("Required field {}") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{}");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"name\":1}") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"name\":1}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).value == 1.0f);
+    }
+    SUBCASE("{ \"name\" : 1 }") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{ \"name\" : 1 }");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).value == 1.0f);
+    }
+    SUBCASE("{\"name\":1} no optional") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>,KeyValue<name2,ParseFloat>>,NamelessValues<Value<ParseFloat>,Value<ParseFloat>>> parser;
+        std::string s("{\"name\":1}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).Given() == true);
+        REQUIRE(std::get<0>(out).value == 1.0f);
+        REQUIRE(std::get<1>(out).Given() == false);
+    }
+    SUBCASE("{\"name\":1,\"name2\":2}") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>,KeyValue<name2,ParseFloat>>,NamelessValues<Value<ParseFloat>,Value<ParseFloat>>> parser;
+        std::string s("{\"name\":1,\"name2\":2}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).Given() == true);
+        REQUIRE(std::get<0>(out).value == 1.0f);
+        REQUIRE(std::get<1>(out).Given() == true);
+        REQUIRE(std::get<1>(out).value == 2.0f);
+    }
+    SUBCASE("{\"name2\":2,\"name\":1}") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>,KeyValue<name2,ParseFloat>>,NamelessValues<Value<ParseFloat>,Value<ParseFloat>>> parser;
+        std::string s("{\"name2\":2,\"name\":1}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).Given() == true);
+        REQUIRE(std::get<0>(out).value == 1.0f);
+        REQUIRE(std::get<1>(out).Given() == true);
+        REQUIRE(std::get<1>(out).value == 2.0f);
+    }
+    SUBCASE("{\"name2\":2,\"name\":1} and again") {
+        ParseObject<KeyValues<RequiredKeyValue<name, ParseFloat>,KeyValue<name2,ParseFloat>>,NamelessValues<Value<ParseFloat>,Value<ParseFloat>>> parser;
+        std::string s("{\"name2\":2,\"name\":1}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        s = std::string("{\"name2\":3,\"name\":4}");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        parser.Swap(out);
+        REQUIRE(parser.Finished() == true);
+        REQUIRE(std::get<0>(out).Given() == true);
+        REQUIRE(std::get<0>(out).value == 4.0f);
+        REQUIRE(std::get<1>(out).Given() == true);
+        REQUIRE(std::get<1>(out).value == 3.0f);
+    }
+    SUBCASE("{ \"name\" : [1] }") {
+        ParseObject<KeyValues<KeyContainerValue<name, ParseArray<ParseFloat>>>,NamelessValues<Value<ParseArray<ParseFloat>>>> parser;
+        std::string s("{ \"name\" : [1] }");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
+        REQUIRE(parser.Finished() == true);
+        decltype(parser)::Type out;
+        parser.Swap(out);
+        REQUIRE(std::get<0>(out).value.size() == 1);
+        REQUIRE(std::get<0>(out).value[0] == 1.0f);
+    }
+}
+
+TEST_CASE("Object invalid") {
+    ParserPool pp;
+    SUBCASE("invalid") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("invalid");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{:") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{:");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"name\":,") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"name\":,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"invalid\"") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"invalid\"");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"name\":1,,") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"name\":1,,");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"name\":1:") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"name\":1:");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("{\"name\":\"invalid\"") {
+        ParseObject<KeyValues<KeyValue<name, ParseFloat>>,NamelessValues<Value<ParseFloat>>> parser;
+        std::string s("{\"name\":\"invalid\"");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+}
+#endif

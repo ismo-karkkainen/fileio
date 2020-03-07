@@ -1,0 +1,225 @@
+#!/usr/bin/env ruby
+
+# Copyright 2020 Ismo Kärkkäinen
+# Licensed under Universal Permissive License. See License.txt.
+
+require 'optparse'
+require 'json'
+
+$VERBOSE = false
+$IN = nil
+
+parser = OptionParser.new do |opts|
+  opts.summary_indent = '  '
+  opts.summary_width = 26
+  opts.banner = "Usage: iogen [options]"
+  opts.separator ""
+  opts.separator "Options:"
+  opts.on('-i', '--input FILENAME') { |f| $IN = f }
+  opts.on('--verbose', 'Verbose output to stderr.') { $VERBOSE = true }
+  opts.on('-h', '--help', 'Print this help and exit.') do
+    STDOUT.puts opts
+    exit 0
+  end
+end
+parser.parse!
+
+def file(val, default, mode)
+  return default if val.nil?
+  begin
+    return File.open(val, mode)
+  rescue StandardError
+    STDERR.puts "Failed to open for #{mode}: #{val}"
+    exit 1
+  end
+end
+
+def aargh(message)
+  raise ArgumentError.new(message)
+end
+
+# Parser to type etc. mapping.
+$simples = {
+  'string' => {
+    :cont => false,
+    :fmt => 'ParseString',
+    :include => 'JSONParsers.hpp' },
+  'float' => {
+    :cont => false,
+    :fmt => 'ParseFloat',
+    :include => 'JSONParsers.hpp' },
+  'array' => {
+    :cont => true,
+    :fmt => 'ParseArray<%s>',
+    :include => 'JSONParsers.hpp' },
+  'object' => {
+    :cont => true,
+    :fmt => 'ParseObject<%s,%s>',
+    :include => 'JSONParsers.hpp' }
+}
+$containers = {
+  'array' => {
+    :cont => true,
+    :pre => 'ParseContainerArray<%s>',
+    :include => 'JSONParsers.hpp' }
+}
+
+def check_input(format)
+  format = [ format ] unless format.is_a? Array
+  item = format.shift
+  if item.is_a? String
+    contained = []
+    size = format.size
+    contained = check_input(format) unless format.empty?
+    if contained.empty? or contained.first[:cont] == false
+      ti = $simples.fetch(item)
+    else
+      ti = $containers.fetch(item)
+    end
+    aargh("input format: #{item}") if ti.nil?
+    aargh("input format: non-container not last: #{item}") if 0 < size and ti[:cont] == false
+    aargh("input format: container last: #{item}") if size == 0 and ti[:cont]
+    info = [ ti ]
+    info.concat(contained) unless contained.empty?
+    return info
+  end
+  # Object.
+  info = []
+  object_name = nil
+  item.each_pair do |name, spec|
+    if name == '-typename-'
+        object_name = spec
+        next
+    end
+    items = spec.fetch('format', nil)
+    aargh("input #{name} no format") if items.nil?
+    fmt = check_input(items)
+    info.push({
+      :name => name,
+      :req => spec.fetch('required', false),
+      :fmt => fmt,
+      :cont => ((fmt.size >= 1) and fmt[0][:cont])
+    })
+  end
+  return {
+    :object => $simples['object'],
+    :fields => info,
+    :name => object_name
+  }
+end
+
+def check_output(format)
+  return {}
+end
+
+input = file($IN, STDIN, 'r')
+specs = JSON.parse(input.gets(nil))
+parsed = {}
+specs.each_pair do |basename, spec|
+  incoming = check_input(spec.fetch('input', {}))
+  outgoing = check_output(spec.fetch('output', {}))
+  if incoming.fetch(:fields, []).empty? and outgoing.fetch(:fields, []).empty?
+    aargh("#{basename} no input nor output")
+  end
+  parsed[basename] = { :in => incoming, :out => outgoing }
+end
+
+# Figure out type names etc. from formats.
+
+$basename = ''
+$types = {}
+$lines = []
+$includes = []
+def add_type(t, typename=nil)
+  unless $types.has_key? t
+    tn = typename.nil? ? "#{$basename}#{$types.size}" : typename
+    $types[t] = tn
+    $lines.push "typedef #{t} #{tn};"
+  end
+  return $types[t]
+end
+
+def add_static(t)
+  unless $types.has_key? t
+    n = "#{$basename}#{$types.size}Name"
+    $types[t] = n
+    $lines.push "static const char #{n}[] = \"#{t}\";";
+  end
+  return $types[t]
+end
+
+def add_named_type(names, values, base)
+  t = "#{base}Values"
+  unless $types.has_key? t
+    $types[t] = t
+    $lines.push(%Q(
+class #{t} {
+public:
+    #{base}::Type values;
+#{(names.map { |n| "    bool #{n}Given() const { return std::get<#{names.find_index(n)}>(values).Given(); }"}).join("\n")}
+#{(names.map { |n| "    #{values[names.find_index(n)]}::Type #{n}Get() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+};
+))
+  end
+  return t
+end
+
+def define_types(info)
+  return '' if info.empty?
+  if info.is_a? Array
+    this = info.shift
+    $includes.push(this[:include]) if this.has_key? :include
+    return add_type(this[:fmt] % define_types(info))
+  else
+    $includes.push(info[:include]) if info.has_key? :include
+    keyvalues = []
+    values = []
+    names = []
+    info[:fields].each do |field|
+      parser = define_types(field[:fmt])
+      n = add_static(field[:name])
+      keyvalues.push add_type("#{field[:req] ? 'Required' : ''}Key#{field[:cont] ? 'Container' : ''}Value<#{n},#{parser}>")
+      values.push add_type("Value<#{parser}>")
+      names.push field[:name]
+    end
+    kvs = add_type("KeyValues<#{keyvalues.join(',')}>")
+    nvs = add_type("NamelessValues<#{values.join(',')}>")
+    parser = add_type(info[:object][:fmt] % [ kvs, nvs ], info[:name])
+    vs = add_named_type(names, values, parser)
+  end
+end
+
+parsed.each_pair do |basename, spec|
+  $basename = basename
+  define_types(spec[:in])
+  spec[:in][:lines] = $lines
+  spec[:in][:includes] = $includes.uniq
+  $lines = []
+  $includes = []
+  # Do output.
+  spec[:out][:lines] = []
+  spec[:out][:includes] = []
+end
+
+def includes(ins, outs)
+  all = ins[:includes]
+  all.concat outs[:includes]
+  all.uniq!
+  lines = all.map do |filename|
+    "#include \"#{filename}\""
+  end
+  return lines.join("\n")
+end
+
+parsed.each_pair do |basename, spec|
+  h = file("#{basename}_io.hpp", STDOUT, 'w')
+  h.puts %Q(// Auto-generated file. Do not edit.
+#if !defined(IOGEN_#{basename.upcase}_IOHPP)
+#define IOGEN_#{basename.upcase}_IOHPP
+#{includes(spec[:in], spec[:out])}
+)
+  h.puts spec[:in][:lines].join("\n") unless spec[:in][:lines].empty?
+  h.puts spec[:out][:lines].join("\n") unless spec[:out][:lines].empty?
+  h.puts '#endif'
+  h.close
+end

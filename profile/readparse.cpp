@@ -1,11 +1,9 @@
+#define STR(x) #x
+#define ENQUOTE(x) STR(x)
+#define INCLUDE_FILE(x) ENQUOTE(x)
+#include INCLUDE_FILE(HEADER)
 #include "FileDescriptorInput.hpp"
 #include "BlockQueue.hpp"
-
-#define ENQUOTE(x) ENQUOTE_1(x)
-#define ENQUOTE_1(x) #x
-#define INCLUDE_FILE(x) ENQUOTE(x)
-
-#include INCLUDE_FILE(HEADER)
 #include <iostream>
 
 const size_t block_size = 32768;

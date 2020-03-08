@@ -216,8 +216,8 @@ parsed.each_pair do |basename, spec|
   h.puts %Q(// Auto-generated file. Do not edit.
 #if !defined(IOGEN_#{basename.upcase}_IOHPP)
 #define IOGEN_#{basename.upcase}_IOHPP
-#{includes(spec[:in], spec[:out])}
 )
+  h.puts includes(spec[:in], spec[:out])
   h.puts spec[:in][:lines].join("\n") unless spec[:in][:lines].empty?
   h.puts spec[:out][:lines].join("\n") unless spec[:out][:lines].empty?
   h.puts '#endif'

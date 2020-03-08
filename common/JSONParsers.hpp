@@ -85,6 +85,7 @@ public:
         noexcept(false);
 };
 
+// Holds lowest-level parsers and buffer they share.
 class ParserPool {
 public:
     ParserPool() { }
@@ -92,7 +93,7 @@ public:
     ParserPool& operator=(const ParserPool&) = delete;
     virtual ~ParserPool();
 
-    enum Parsers { Float, String, Whitespace };
+    enum Parsers { Float, String, Whitespace }; // Match with parsers' enums.
     std::vector<char> buffer;
 
     std::tuple<ParseFloat, ParseString, SkipWhitespace> Parser;
@@ -283,6 +284,8 @@ class ValueStore;
 class ScanningKeyValue {
 protected:
     bool given;
+    void Give(ValueStore* VS);
+
 public:
     ScanningKeyValue() : given(false) { }
     virtual ~ScanningKeyValue();
@@ -397,10 +400,13 @@ public:
 class ValueStore {
 protected:
     bool given;
+
+private:
+    void Give();
+    friend class ScanningKeyValue;
+
 public:
     ValueStore() : given(false) { }
-    virtual ~ValueStore();
-    void Give() { given = true; }
     bool Given() const { return given; }
 };
 
@@ -410,27 +416,6 @@ public:
     typedef typename Parser::Type Type;
     Type value;
 };
-
-/*
-template<typename Parser>
-class RequiredContainerValue : public ValueStore {
-public:
-    typedef typename Parser::Type Type;
-    Type value;
-    void Give() { }
-    bool Given() const { return true; }
-};
-
-template<typename Parser>
-class ContainerValue : public RequiredContainerValue<Parser> {
-private:
-    bool given;
-public:
-    ContainerValue() : given(false) { }
-    void Give() { given = true; }
-    bool Given() const { return given; }
-};
-*/
 
 template<class ... Fields>
 class NamelessValues {
@@ -468,19 +453,17 @@ public:
 
 template<const char* KeyString, typename Parser>
 void KeyValue<KeyString,Parser>::Swap(ValueStore* VS, ParserPool& Pool) {
-    Value<Parser>* dst(dynamic_cast<Value<Parser>*>(VS));
+    Value<Parser>* dst(static_cast<Value<Parser>*>(VS));
     std::swap(dst->value, std::get<Parser::Pool::Index>(Pool.Value));
-    VS->Give();
-    given = false;
+    Give(VS);
 }
 
 template<const char* KeyString, typename Parser>
 void KeyContainerValue<KeyString,Parser>::Swap(ValueStore* VS, ParserPool& Pool)
 {
-    Value<Parser>* dst(dynamic_cast<Value<Parser>*>(VS));
+    Value<Parser>* dst(static_cast<Value<Parser>*>(VS));
     p.Swap(dst->value);
-    VS->Give();
-    given = false;
+    Give(VS);
 }
 
 // The Values class used by the template should be derived from NamelessValues
@@ -625,25 +608,9 @@ const char* ParseObject<KeyValues,Values>::Scan(
     return setFinished(nullptr);
 }
 
-// Something reading stdin or file and this receiving blocks and freeing after
-// they have been iterated past is another thing.
-// Separate reader and iterator. Iterator gets fed more data and has end
-// indicated. Reader does the feeding. Iterator is container with iterator-like
-// methods. In fact storage and reader base classes in one.
-// Have pointer to last item in contiguous memory block be available and
-// byte after that must be zero. Then we can scan without copy to buffer,
-// copying only when item spans memory blocks.
-// Gives plenty of opportunities to check how it'll work.
 // Null terminator is required to convert a number directly. Does C allow
 // representation that JSON does not? If so, would have to scan to verify.
 // String has to be scanned.
-
-// Assuming we get data from something, and the block allocator places null
-// terminator as appropriate for parser and uses reader to fill up data
-// before that, we can pass start-end pairs to parser and whenever the
-// last item may continue outside block end, parse takes a local copy of
-// it as appropriate. FOr number just the number part (short usually) and
-// for string it accumulates a copy for std::string anyway.
 
 // multi-dimensional array of one type would probably be more
 // efficient. One just needs to have operator() set properly and scalar type.

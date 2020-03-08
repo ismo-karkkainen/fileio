@@ -202,8 +202,14 @@ const char* SkipWhitespace::Scan(
 
 ScanningKeyValue::~ScanningKeyValue() { }
 
-ValueStore::~ValueStore() { }
+void ScanningKeyValue::Give(ValueStore* VS) {
+    given = false;
+    VS->Give();
+}
 
+void ValueStore::Give() {
+    given = true;
+}
 
 #if defined(TESTDOC_UNITTEST)
 

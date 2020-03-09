@@ -1,0 +1,111 @@
+#!/usr/bin/env ruby
+
+# Copyright 2020 Ismo Kärkkäinen
+# Licensed under Universal Permissive License. See License.txt.
+
+require 'optparse'
+require 'json'
+
+$IN = nil
+ENV['POSIXLY_CORRECT'] = '1'
+parser = OptionParser.new do |opts|
+  opts.summary_indent = '  '
+  opts.summary_width = 26
+  opts.banner = "Usage: inputgen [options]"
+  opts.separator ""
+  opts.separator "Options:"
+  opts.on('-i', '--input FILENAME') { |f| $IN = f }
+  opts.on('-h', '--help', 'Print this help and exit.') do
+    STDOUT.puts opts
+    exit 0
+  end
+end
+parser.parse!
+
+def file(val, default, mode)
+  return default if val.nil?
+  begin
+    return File.open(val, mode)
+  rescue StandardError
+    STDERR.puts "Failed to open for #{mode}: #{val}"
+    exit 1
+  end
+end
+
+def aargh(message)
+  raise ArgumentError.new(message)
+end
+
+$float_counter = 0
+$string_counter = 0
+$simples = {
+  'string' => {
+    :cont => false,
+    :gen => Proc.new do
+      Proc.new { (0...8).map { (65 + rand(26)).chr }.join }
+    end
+    },
+  'float' => {
+    :cont => false,
+    :gen => Proc.new do
+      Proc.new { $float_counter += 1 }
+    end
+    },
+  'array' => {
+    :cont => true,
+    :gen => Proc.new do |count, sub|
+      Proc.new { (0..count).map { sub.call } }
+    end
+    },
+  'object' => {
+    :cont => true,
+    :gen => Proc.new do |names, subs|
+      Proc.new do
+        h = {}
+        names.each_index do |k|
+          h[names[k]] = subs[k].call
+        end
+        h
+      end
+    end
+    }
+}
+
+def gen_input(format, count)
+  format = [ format ] unless format.is_a? Array
+  item = format.shift
+  if item.is_a? String
+    size = format.size
+    contained = format.empty? ? nil : gen_input(format, count / 100)
+    ti = $simples.fetch(item)
+    aargh("input format: #{item}") if ti.nil?
+    aargh("input format: non-container not last: #{item}") if 0 < size and ti[:cont] == false
+    aargh("input format: container last: #{item}") if size == 0 and ti[:cont]
+    return contained.nil? ? ti[:gen].call() : ti[:gen].call(count, contained)
+  end
+  # Object.
+  names = []
+  subs = []
+  item.each_pair do |name, spec|
+    next if name == '-typename-'
+    items = spec.fetch('format', nil)
+    aargh("input #{name} no format") if items.nil?
+    names.push name
+    subs.push gen_input(items, count / 100)
+  end
+  return $simples['object'][:gen].call(names, subs)
+end
+
+input = file($IN, STDIN, 'r')
+specs = JSON.parse(input.gets(nil))
+
+size = (ARGV.length == 0) ? 1000000 : Integer(ARGV.first)
+out = {}
+specs.each_pair do |basename, spec|
+  out[basename] = gen_input(spec.fetch('input', {}), size)
+end
+
+out.each_pair do |basename, generator|
+  f = file("#{basename}.json", nil, 'w')
+  f.puts(JSON.generate(generator.call))
+end

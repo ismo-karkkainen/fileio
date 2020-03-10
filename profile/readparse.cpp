@@ -5,8 +5,11 @@
 #include "FileDescriptorInput.hpp"
 #include "BlockQueue.hpp"
 #include <iostream>
+#include <fcntl.h>
+#include <unistd.h>
 
-const size_t block_size = 32768;
+
+const size_t block_size = 1048576;
 
 void read_input(InputChannel& Input, BlockQueue& Storage) {
     BlockQueue::BlockPtr buffer;
@@ -18,7 +21,7 @@ void read_input(InputChannel& Input, BlockQueue& Storage) {
         int count = Input.Read(&buffer->front(), block_size);
         if (count == 0)
             continue;
-        std::cout << count << '\n';
+        //std::cout << count << '\n';
         buffer->resize(count + 1);
         buffer->back() = 0;
         buffer = Storage.Add(buffer);
@@ -40,9 +43,14 @@ void parse_input(BlockQueue& Storage) {
 }
 
 int main(int argc, char** argv) {
+    int f = 0;
+    if (argc > 1)
+        f = open(argv[1], O_RDONLY);
     BlockQueue read;
-    FileDescriptorInput input(0);
+    FileDescriptorInput input(f);
     read_input(input, read);
+    if (f)
+        close(f);
     parse_input(read);
     return 0;
 }

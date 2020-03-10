@@ -83,6 +83,10 @@ public:
 
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
+
+    bool IsWhitespace(const char* C) const {
+        return *C == ' ' || *C == '\x9' || *C == '\xA' || *C == '\xD';
+    }
 };
 
 // Holds lowest-level parsers and buffer they share.
@@ -134,7 +138,7 @@ const char* ParseArray<Parser>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
     Parser& p(std::get<Parser::Pool::Index>(Pool.Parser));
-    auto& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
+    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     typename Parser::Type& value(std::get<Parser::Pool::Index>(Pool.Value));
     if (!p.Finished()) {
         // In the middle of parsing value when buffer ended?
@@ -152,24 +156,26 @@ const char* ParseArray<Parser>::Scan(
         ++Begin;
     }
     while (Begin != End) {
-        if (!out.empty() && !had_comma) {
-            // Comma, maybe surrounded by spaces.
-            if (*Begin == ',') // Most likely unless prettified.
-                ++Begin;
-            else {
-                Begin = skipper.Scan(Begin, End, Pool);
-                if (Begin == nullptr)
-                    return setFinished(nullptr);
-                if (*Begin == ']') {
-                    began = false; // In case caller re-uses. Out must be empty.
-                    return setFinished(++Begin);
+        if (!out.empty()) {
+            if (!had_comma) {
+                // Comma, maybe surrounded by spaces.
+                if (*Begin == ',') // Most likely unless prettified.
+                    ++Begin;
+                else {
+                    Begin = skipper.Scan(Begin, End, Pool);
+                    if (Begin == nullptr)
+                        return setFinished(nullptr);
+                    if (*Begin == ']') {
+                        began = false;
+                        return setFinished(++Begin);
+                    }
+                    if (*Begin != ',')
+                        throw InvalidArraySeparator;
+                    Begin++;
                 }
-                if (*Begin != ',')
-                    throw InvalidArraySeparator;
-                Begin++;
+                had_comma = true;
             }
-            had_comma = true;
-        } else if (out.empty()) {
+        } else {
             Begin = skipper.Scan(Begin, End, Pool);
             if (Begin == nullptr)
                 return setFinished(nullptr);
@@ -178,9 +184,11 @@ const char* ParseArray<Parser>::Scan(
                 return setFinished(++Begin);
             }
         }
-        Begin = skipper.Scan(Begin, End, Pool);
-        if (Begin == nullptr)
-            return setFinished(nullptr);
+        if (skipper.IsWhitespace(Begin)) {
+            Begin = skipper.Scan(++Begin, End, Pool);
+            if (Begin == nullptr)
+                return setFinished(nullptr);
+        }
         // Now there should be the item to parse.
         Begin = p.Scan(Begin, End, Pool);
         if (Begin == nullptr)
@@ -542,7 +550,7 @@ const char* ParseObject<KeyValues,Values>::Scan(
         state = PreKey;
         ++Begin;
     }
-    auto& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
+    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     while (Begin != End) {
         // Re-order states to most expected first once works.
         if (state == PreKey) {

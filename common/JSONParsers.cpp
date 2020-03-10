@@ -25,7 +25,7 @@ ParserPool::~ParserPool() { }
 const char* SimpleValueParser::setFinished(const char* Endptr, ParserPool& Pool)
 {
     finished = Endptr != nullptr;
-    if (finished)
+    if (finished && !Pool.buffer.empty())
         Pool.buffer.resize(0);
     return Endptr;
 }
@@ -48,7 +48,7 @@ const char* ParseFloat::Scan(
         // Assumes LC_NUMERIC is "C" or close enough for decimal point.
         out = strtof(Begin, &end);
         if (end != Begin && end != End) {
-            // Detect hexadecimal significand, exponent, INF, NAN. "."
+            // Detect hexadecimal significand and exponent, INF, NAN. ","
             while (Begin != end &&
                 (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||
                 *Begin == 'e' || *Begin == 'E' ||
@@ -56,7 +56,7 @@ const char* ParseFloat::Scan(
                     ++Begin;
             if (Begin != end)
                 throw InvalidFloat;
-            return setFinished(end, Pool); // Good up to this. Caller checks separator.
+            return setFinished(end); // Good up to this.
         }
         // Copy good chars to buffer. Either end cut off or invalid.
         while (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||

@@ -48,7 +48,10 @@ $simples = {
   'float' => {
     :cont => false,
     :gen => Proc.new do
-      Proc.new { $float_counter += 1 }
+      Proc.new do
+        $float_counter += 1
+        (($float_counter % 2 != 0) ? -1 : 1) * 0.27 * $float_counter
+      end
     end
     },
   'array' => {

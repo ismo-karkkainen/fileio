@@ -44,15 +44,15 @@ const char* ParseFloat::Scan(
 {
     Type& out(std::get<ParseFloat::Pool::Index>(Pool.Value));
     char* end = nullptr;
-    if (Pool.buffer.empty()) {
+    if (finished) {
         // Assumes LC_NUMERIC is "C" or close enough for decimal point.
         out = strtof(Begin, &end);
         if (end != Begin && end != End) {
             // Detect hexadecimal significand and exponent, INF, NAN. ","
             while (Begin != end &&
-                (('0' <= *Begin && *Begin <= '9') || *Begin == '.' ||
-                *Begin == 'e' || *Begin == 'E' ||
-                *Begin == '-' || *Begin == '+'))
+                (('0' <= *Begin && *Begin <= '9') ||
+                *Begin == '-' || *Begin == '+' || *Begin == '.' ||
+                *Begin == 'e' || *Begin == 'E'))
                     ++Begin;
             if (Begin != end)
                 throw InvalidFloat;

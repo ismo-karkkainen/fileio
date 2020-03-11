@@ -114,10 +114,10 @@ public:
 
 private:
     Type out;
-    bool began, had_comma;
+    bool began, expect_number;
 
 public:
-    ParseArray() : began(false), had_comma(false) { }
+    ParseArray() : began(false), expect_number(true) { }
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
 
@@ -146,55 +146,58 @@ const char* ParseArray<Parser>::Scan(
         if (Begin == nullptr)
             return setFinished(nullptr);
         out.push_back(value);
-        had_comma = false;
+        expect_number = false;
     } else if (!began) {
         // Expect '[' on first call.
         if (*Begin != '[')
             throw InvalidArrayStart;
-        began = true;
-        had_comma = false;
-        ++Begin;
+        began = expect_number = true;
+        Begin = skipper.Scan(++Begin, End, Pool);
+        if (Begin == nullptr)
+            return setFinished(nullptr);
+        if (*Begin == ']') {
+            began = false; // In case caller re-uses. Out must be empty.
+            return setFinished(++Begin);
+        }
+    } else if (out.empty()) {
+        Begin = skipper.Scan(Begin, End, Pool);
+        if (Begin == nullptr)
+            return setFinished(nullptr);
+        if (*Begin == ']') {
+            began = false; // In case caller re-uses. Out must be empty.
+            return setFinished(++Begin);
+        }
     }
     while (Begin != End) {
-        if (!out.empty()) {
-            if (!had_comma) {
-                // Comma, maybe surrounded by spaces.
-                if (*Begin == ',') // Most likely unless prettified.
-                    ++Begin;
-                else {
-                    Begin = skipper.Scan(Begin, End, Pool);
-                    if (Begin == nullptr)
-                        return setFinished(nullptr);
-                    if (*Begin == ']') {
-                        began = false;
-                        return setFinished(++Begin);
-                    }
-                    if (*Begin != ',')
-                        throw InvalidArraySeparator;
-                    Begin++;
-                }
-                had_comma = true;
+        if (expect_number) {
+            if (skipper.IsWhitespace(Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
+                if (Begin == nullptr)
+                    return setFinished(nullptr);
             }
-        } else {
+            // Now there should be the item to parse.
+            Begin = p.Scan(Begin, End, Pool);
+            if (Begin == nullptr)
+                return setFinished(nullptr);
+            out.push_back(value);
+            expect_number = false;
+        }
+        // Comma, maybe surrounded by spaces.
+        if (*Begin == ',') // Most likely unless prettified.
+            ++Begin;
+        else {
             Begin = skipper.Scan(Begin, End, Pool);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             if (*Begin == ']') {
-                began = false; // In case caller re-uses. Out must be empty.
+                began = false;
                 return setFinished(++Begin);
             }
+            if (*Begin != ',')
+                throw InvalidArraySeparator;
+            Begin++;
         }
-        if (skipper.IsWhitespace(Begin)) {
-            Begin = skipper.Scan(++Begin, End, Pool);
-            if (Begin == nullptr)
-                return setFinished(nullptr);
-        }
-        // Now there should be the item to parse.
-        Begin = p.Scan(Begin, End, Pool);
-        if (Begin == nullptr)
-            return setFinished(nullptr);
-        out.push_back(value);
-        had_comma = false;
+        expect_number = true;
     }
     return setFinished(nullptr);
 }

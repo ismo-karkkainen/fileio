@@ -68,7 +68,6 @@ list(TRANSFORM Profilers APPEND "_io.hpp" OUTPUT_VARIABLE GenHpp)
 add_custom_target(generated
     COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/profile/profile.md -o specs ${Profilers}
     COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i specs
-    COMMAND ${CMAKE_COMMAND} -E remove specs
     BYPRODUCTS ${GenHpp})
 
 add_executable(readfloatarray profile/readparse.cpp ${JSONProfiler})

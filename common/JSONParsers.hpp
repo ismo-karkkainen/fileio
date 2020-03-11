@@ -84,8 +84,8 @@ public:
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
 
-    bool IsWhitespace(const char* C) const {
-        return *C == ' ' || *C == '\x9' || *C == '\xA' || *C == '\xD';
+    inline bool IsWhitespace(const char C) const {
+        return C == ' ' || C == '\x9' || C == '\xA' || C == '\xD';
     }
 };
 
@@ -170,7 +170,7 @@ const char* ParseArray<Parser>::Scan(
     }
     while (Begin != End) {
         if (expect_number) {
-            if (skipper.IsWhitespace(Begin)) {
+            if (skipper.IsWhitespace(*Begin)) {
                 Begin = skipper.Scan(++Begin, End, Pool);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
@@ -546,68 +546,69 @@ template<typename KeyValues, typename Values>
 const char* ParseObject<KeyValues,Values>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
-    if (state == NotStarted) {
-        // Expect '{' on the first call.
-        if (*Begin != '{')
-            throw InvalidObjectStart;
-        state = PreKey;
-        ++Begin;
-    }
     SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     while (Begin != End) {
         // Re-order states to most expected first once works.
-        if (state == PreKey) {
-            Begin = skipper.Scan(Begin, End, Pool);
-            if (Begin == nullptr)
-                return setFinished(nullptr);
+        switch (state) {
+        case NotStarted:
+            // Expect '{' on the first call.
+            if (*Begin != '{')
+                throw InvalidObjectStart;
+            state = PreKey;
+            ++Begin;
+        case PreKey:
+            if (skipper.IsWhitespace(*Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
+                if (Begin == nullptr)
+                    return setFinished(nullptr);
+            }
             if (*Begin == '}')
                 return checkPassed(++Begin);
             state = ExpectKey;
-        }
-        if (state == ExpectKey) {
+        case ExpectKey:
             Begin = std::get<ParserPool::String>(Pool.Parser).Scan(
                 Begin, End, Pool);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             setActivating(std::get<ParserPool::String>(Pool.Value));
             state = PreColon;
-        }
-        if (state == PreColon) {
-            Begin = skipper.Scan(Begin, End, Pool);
-            if (Begin == nullptr)
-                return setFinished(nullptr);
+        case PreColon:
+            if (skipper.IsWhitespace(*Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
+                if (Begin == nullptr)
+                    return setFinished(nullptr);
+            }
             state = ExpectColon;
-        }
-        if (state == ExpectColon) {
+        case ExpectColon:
             if (*Begin != ':')
                 throw InvalidKeySeparator;
             state = PreValue;
             if (++Begin == End)
                 return setFinished(nullptr);
-        }
-        if (state == PreValue) {
-            Begin = skipper.Scan(Begin, End, Pool);
-            if (Begin == nullptr)
-                return setFinished(nullptr);
+        case PreValue:
+            if (skipper.IsWhitespace(*Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
+                if (Begin == nullptr)
+                    return setFinished(nullptr);
+            }
             active = activating;
             activating = -1;
             state = ExpectValue;
-        }
-        if (state == ExpectValue) {
+        case ExpectValue:
             Begin = parsers.Scanner(active, Pool).Scan(Begin, End, Pool);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             parsers.KeyValue(active)->Swap(out[active], Pool);
             active = -1;
             state = PreComma;
-        }
-        if (state == PreComma) {
-            Begin = skipper.Scan(Begin, End, Pool);
-            if (Begin == nullptr)
-                return setFinished(nullptr);
+        case PreComma:
+            if (skipper.IsWhitespace(*Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
+                if (Begin == nullptr)
+                    return setFinished(nullptr);
+            }
             state = ExpectComma;
-        }
-        if (state == ExpectComma) {
+        case ExpectComma:
             if (*Begin == '}')
                 return checkPassed(++Begin);
             if (*Begin != ',')

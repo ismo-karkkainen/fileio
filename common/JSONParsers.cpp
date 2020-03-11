@@ -49,6 +49,7 @@ const char* ParseFloat::Scan(
         out = strtof(Begin, &end);
         if (end != Begin && end != End) {
             // Detect hexadecimal significand and exponent, INF, NAN. ","
+            // This block is about 6% of running time if you tolerate the above.
             while (Begin != end &&
                 (('0' <= *Begin && *Begin <= '9') ||
                 *Begin == '-' || *Begin == '+' || *Begin == '.' ||
@@ -194,9 +195,8 @@ const char* ParseString::Scan(
 const char* SkipWhitespace::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
-    while (Begin != End &&
-        (*Begin == ' ' || *Begin == '\x9' || *Begin == '\xA' || *Begin == '\xD'))
-            ++Begin;
+    while (Begin != End && IsWhitespace(*Begin))
+        ++Begin;
     return setFinished((Begin != End) ? Begin : nullptr, Pool);
 }
 

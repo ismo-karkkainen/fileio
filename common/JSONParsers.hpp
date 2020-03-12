@@ -36,6 +36,11 @@ protected:
     const char* setFinished(const char* Endptr, ParserPool& Pool);
     const char* setFinished(const char* Endptr);
 
+    const char* skipWhitespace(const char* Begin, const char* End);
+    inline bool isWhitespace(const char C) {
+        return C == ' ' || C == '\x9' || C == '\xA' || C == '\xD';
+    }
+
 public:
     SimpleValueParser() : finished(true) { }
     virtual ~SimpleValueParser();
@@ -51,7 +56,7 @@ public:
 class ParseFloat : public SimpleValueParser {
 public:
     typedef float Type;
-    enum Pool { Index = 0 }; // Has to match ParserPool enum.
+    enum Pool { Index = 0 }; // Has to match ParserPool order.
 
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
@@ -68,26 +73,13 @@ private:
 
 public:
     typedef std::string Type;
-    enum Pool { Index = 1 }; // Has to match ParserPool enum.
+    enum Pool { Index = 1 }; // Has to match ParserPool order.
 
     ParseString() : count(-1), escaped(false), began(false) { }
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
 };
 
-
-class SkipWhitespace : public SimpleValueParser {
-public:
-    typedef char Type;
-    enum Pool { Index = 2 }; // Has to match ParserPool enum.
-
-    const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
-        noexcept(false);
-
-    inline bool IsWhitespace(const char C) const {
-        return C == ' ' || C == '\x9' || C == '\xA' || C == '\xD';
-    }
-};
 
 // Holds lowest-level parsers and buffer they share.
 class ParserPool {
@@ -97,11 +89,12 @@ public:
     ParserPool& operator=(const ParserPool&) = delete;
     virtual ~ParserPool();
 
-    enum Parsers { Float, String, Whitespace }; // Match with parsers' enums.
     std::vector<char> buffer;
 
-    std::tuple<ParseFloat, ParseString, SkipWhitespace> Parser;
-    std::tuple<ParseFloat::Type, ParseString::Type, SkipWhitespace::Type> Value;
+    enum Parsers { Float, String }; // Match with order below.
+    // Match order with parsers' Pool enum Index values.
+    std::tuple<ParseFloat, ParseString> Parser;
+    std::tuple<ParseFloat::Type, ParseString::Type> Value;
 };
 
 
@@ -138,7 +131,6 @@ const char* ParseArray<Parser>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
     Parser& p(std::get<Parser::Pool::Index>(Pool.Parser));
-    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     typename Parser::Type& value(std::get<Parser::Pool::Index>(Pool.Value));
     if (!p.Finished()) {
         // In the middle of parsing value when buffer ended?
@@ -152,7 +144,7 @@ const char* ParseArray<Parser>::Scan(
         if (*Begin != '[')
             throw InvalidArrayStart;
         began = expect_number = true;
-        Begin = skipper.Scan(++Begin, End, Pool);
+        Begin = skipWhitespace(++Begin, End);
         if (Begin == nullptr)
             return setFinished(nullptr);
         if (*Begin == ']') {
@@ -160,7 +152,7 @@ const char* ParseArray<Parser>::Scan(
             return setFinished(++Begin);
         }
     } else if (out.empty()) {
-        Begin = skipper.Scan(Begin, End, Pool);
+        Begin = skipWhitespace(Begin, End);
         if (Begin == nullptr)
             return setFinished(nullptr);
         if (*Begin == ']') {
@@ -170,8 +162,8 @@ const char* ParseArray<Parser>::Scan(
     }
     while (Begin != End) {
         if (expect_number) {
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -186,7 +178,7 @@ const char* ParseArray<Parser>::Scan(
         if (*Begin == ',') // Most likely unless prettified.
             ++Begin;
         else {
-            Begin = skipper.Scan(Begin, End, Pool);
+            Begin = skipWhitespace(Begin, End);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             if (*Begin == ']') {
@@ -231,7 +223,6 @@ template<typename Parser>
 const char* ParseContainerArray<Parser>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
-    auto& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     if (!p.Finished()) {
         // In the middle of parsing value when buffer ended?
         Begin = p.Scan(Begin, End, Pool);
@@ -245,7 +236,7 @@ const char* ParseContainerArray<Parser>::Scan(
         if (*Begin != '[')
             throw InvalidArrayStart;
         began = expect_item = true;
-        Begin = skipper.Scan(++Begin, End, Pool);
+        Begin = skipWhitespace(++Begin, End);
         if (Begin == nullptr)
             return setFinished(nullptr);
         if (*Begin == ']') {
@@ -253,7 +244,7 @@ const char* ParseContainerArray<Parser>::Scan(
             return setFinished(++Begin);
         }
     } else if (out.empty()) {
-        Begin = skipper.Scan(Begin, End, Pool);
+        Begin = skipWhitespace(Begin, End);
         if (Begin == nullptr)
             return setFinished(nullptr);
         if (*Begin == ']') {
@@ -263,8 +254,8 @@ const char* ParseContainerArray<Parser>::Scan(
     }
     while (Begin != End) {
         if (expect_item) {
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -280,7 +271,7 @@ const char* ParseContainerArray<Parser>::Scan(
         if (*Begin == ',') // Most likely unless prettified.
             ++Begin;
         else {
-            Begin = skipper.Scan(Begin, End, Pool);
+            Begin = skipWhitespace(Begin, End);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             if (*Begin == ']') {
@@ -554,7 +545,6 @@ template<typename KeyValues, typename Values>
 const char* ParseObject<KeyValues,Values>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
-    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
     while (Begin != End) {
         // Re-order states to most expected first once works.
         switch (state) {
@@ -565,8 +555,8 @@ const char* ParseObject<KeyValues,Values>::Scan(
             state = PreKey;
             ++Begin;
         case PreKey:
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -581,8 +571,8 @@ const char* ParseObject<KeyValues,Values>::Scan(
             setActivating(std::get<ParserPool::String>(Pool.Value));
             state = PreColon;
         case PreColon:
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -594,8 +584,8 @@ const char* ParseObject<KeyValues,Values>::Scan(
             if (++Begin == End)
                 return setFinished(nullptr);
         case PreValue:
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -610,8 +600,8 @@ const char* ParseObject<KeyValues,Values>::Scan(
             active = -1;
             state = PreComma;
         case PreComma:
-            if (skipper.IsWhitespace(*Begin)) {
-                Begin = skipper.Scan(++Begin, End, Pool);
+            if (isWhitespace(*Begin)) {
+                Begin = skipWhitespace(++Begin, End);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
             }
@@ -627,10 +617,6 @@ const char* ParseObject<KeyValues,Values>::Scan(
     }
     return setFinished(nullptr);
 }
-
-// Null terminator is required to convert a number directly. Does C allow
-// representation that JSON does not? If so, would have to scan to verify.
-// String has to be scanned.
 
 // multi-dimensional array of one type would probably be more
 // efficient. One just needs to have operator() set properly and scalar type.

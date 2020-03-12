@@ -35,6 +35,13 @@ const char* SimpleValueParser::setFinished(const char* Endptr) {
     return Endptr;
 }
 
+const char* SimpleValueParser::skipWhitespace(const char* Begin, const char* End)
+{
+    while (Begin != End && isWhitespace(*Begin))
+        ++Begin;
+    return (Begin != End) ? Begin : nullptr;
+}
+
 SimpleValueParser::~SimpleValueParser() { }
 
 static ParserException InvalidFloat("Invalid float.");
@@ -190,14 +197,6 @@ const char* ParseString::Scan(
         ++Begin;
     }
     return setFinished(nullptr, Pool);
-}
-
-const char* SkipWhitespace::Scan(
-    const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
-{
-    while (Begin != End && IsWhitespace(*Begin))
-        ++Begin;
-    return setFinished((Begin != End) ? Begin : nullptr, Pool);
 }
 
 ScanningKeyValue::~ScanningKeyValue() { }
@@ -451,25 +450,6 @@ TEST_CASE("String Unicode") {
     }
 }
 
-TEST_CASE("Whitespaces") {
-    ParserPool pp;
-    SkipWhitespace& skipper(std::get<ParserPool::Whitespace>(pp.Parser));
-    std::string s(" \x9\xA\xD z");
-    std::string sp(" \x9\xA\xD");
-    SUBCASE("Valid spaces") {
-        REQUIRE(skipper.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
-        REQUIRE(skipper.Scan(sp.c_str(), sp.c_str() + sp.size(), pp) == nullptr);
-    }
-    SUBCASE("Non-spaces") {
-        char ns[] = " ";
-        for (unsigned char c = 255; c; --c)
-            if (sp.find(c) == std::string::npos) {
-                ns[0] = static_cast<char>(c);
-                REQUIRE(skipper.Scan(ns, ns + 1, pp) == ns);
-            }
-    }
-}
-
 TEST_CASE("Float array") {
     ParserPool pp;
     ParseArray<ParseFloat>::Type out;
@@ -490,7 +470,7 @@ TEST_CASE("Float array") {
         parser.Swap(out);
         REQUIRE(out.empty());
     }
-    SUBCASE("[ 1 ]") {
+    SUBCASE("[\x9 1\xA\xD]") {
         out.resize(0);
         pp.buffer.resize(0);
         ParseArray<ParseFloat> parser;

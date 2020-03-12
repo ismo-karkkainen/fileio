@@ -45,11 +45,22 @@ if (UNIX AND NOT APPLE)
 endif()
 add_test(NAME UnitTest COMMAND unittest)
 
+set(Parsers readimage writeimage)
+add_custom_target(parser COMMENT "Generate parsers for main programs.")
+#add_dependencies(parser ${Parsers})
+set(JSONProfiler common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
+
+list(TRANSFORM Parsers APPEND "_io.hpp" OUTPUT_VARIABLE ParserHpp)
+add_custom_target(parsers
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o specs ${Parsers}
+    COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i specs
+    BYPRODUCTS ${ParserHpp})
+
 #add_executable(writeimage common/unittest.cpp ${Sources} )
+#add_dependencies(writeimage parsers)
 #target_include_directories(writeimage SYSTEM /usr/local/include)
 #target_include_directories(writeimage PRIVATE common)
 #target_compile_features(writeimage PRIVATE cxx_std_17)
-#target_include_directories(writeimage PRIVATE common )
 #target_compile_options(writeimage PRIVATE ${GenericOptions} )
 #if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     #target_compile_options(writeimage PRIVATE ${ReleaseOptions} )
@@ -63,7 +74,7 @@ add_custom_target(profile COMMENT "Building programs to be run with profiler")
 add_dependencies(profile ${Profilers})
 set(JSONProfiler common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
 
-# Custom target that processes all profilers at the same time?
+# Custom target that generates all profiler parsers at the same time.
 list(TRANSFORM Profilers APPEND "_io.hpp" OUTPUT_VARIABLE GenHpp)
 add_custom_target(generated
     COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/profile/profile.md -o specs ${Profilers}

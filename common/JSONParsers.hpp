@@ -211,10 +211,10 @@ public:
 private:
     Parser p;
     Type out;
-    bool began, had_comma;
+    bool began, expect_item;
 
 public:
-    ParseContainerArray() : began(false), had_comma(false) { }
+    ParseContainerArray() : began(false), expect_item(true) { }
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
 
@@ -232,58 +232,66 @@ const char* ParseContainerArray<Parser>::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
     auto& skipper(std::get<ParserPool::Whitespace>(Pool.Parser));
-    if (!p.Finished()) { // In the middle of parsing value when buffer ended?
+    if (!p.Finished()) {
+        // In the middle of parsing value when buffer ended?
         Begin = p.Scan(Begin, End, Pool);
         if (Begin == nullptr)
             return setFinished(nullptr);
         out.push_back(typename Parser::Type());
         p.Swap(out.back());
-        had_comma = false;
+        expect_item = false;
     } else if (!began) {
         // Expect '[' on first call.
         if (*Begin != '[')
             throw InvalidArrayStart;
-        began = true;
-        had_comma = false;
-        ++Begin;
+        began = expect_item = true;
+        Begin = skipper.Scan(++Begin, End, Pool);
+        if (Begin == nullptr)
+            return setFinished(nullptr);
+        if (*Begin == ']') {
+            began = false; // In case caller re-uses. Out must be empty.
+            return setFinished(++Begin);
+        }
+    } else if (out.empty()) {
+        Begin = skipper.Scan(Begin, End, Pool);
+        if (Begin == nullptr)
+            return setFinished(nullptr);
+        if (*Begin == ']') {
+            began = false; // In case caller re-uses. Out must be empty.
+            return setFinished(++Begin);
+        }
     }
     while (Begin != End) {
-        if (!out.empty() && !had_comma) {
-            // Comma, maybe surrounded by spaces.
-            if (*Begin == ',') // Most likely unless prettified.
-                ++Begin;
-            else {
-                Begin = skipper.Scan(Begin, End, Pool);
+        if (expect_item) {
+            if (skipper.IsWhitespace(*Begin)) {
+                Begin = skipper.Scan(++Begin, End, Pool);
                 if (Begin == nullptr)
                     return setFinished(nullptr);
-                if (*Begin == ']') {
-                    began = false; // In case caller re-uses. Out must be empty.
-                    return setFinished(++Begin);
-                }
-                if (*Begin != ',')
-                    throw InvalidArraySeparator;
-                Begin++;
             }
-            had_comma = true;
-        } else if (out.empty()) {
+            // Now there should be the item to parse.
+            Begin = p.Scan(Begin, End, Pool);
+            if (Begin == nullptr)
+                return setFinished(nullptr);
+            out.push_back(typename Parser::Type());
+            p.Swap(out.back());
+            expect_item = false;
+        }
+        // Comma, maybe surrounded by spaces.
+        if (*Begin == ',') // Most likely unless prettified.
+            ++Begin;
+        else {
             Begin = skipper.Scan(Begin, End, Pool);
             if (Begin == nullptr)
                 return setFinished(nullptr);
             if (*Begin == ']') {
-                began = false; // In case caller re-uses. Out must be empty.
+                began = false;
                 return setFinished(++Begin);
             }
+            if (*Begin != ',')
+                throw InvalidArraySeparator;
+            Begin++;
         }
-        Begin = skipper.Scan(Begin, End, Pool);
-        if (Begin == nullptr)
-            return setFinished(nullptr);
-        // Now there should be the item to parse.
-        Begin = p.Scan(Begin, End, Pool);
-        if (Begin == nullptr)
-            return setFinished(nullptr);
-        out.push_back(typename Parser::Type());
-        p.Swap(out.back());
-        had_comma = false;
+        expect_item = true;
     }
     return setFinished(nullptr);
 }

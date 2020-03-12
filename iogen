@@ -60,7 +60,7 @@ $simples = {
 $containers = {
   'array' => {
     :cont => true,
-    :pre => 'ParseContainerArray<%s>',
+    :fmt => 'ParseContainerArray<%s>',
     :include => 'JSONParsers.hpp' }
 }
 
@@ -194,11 +194,15 @@ parsed.each_pair do |basename, spec|
   define_types(spec[:in])
   spec[:in][:lines] = $lines
   spec[:in][:includes] = $includes.uniq
+  $types = {}
   $lines = []
   $includes = []
   # Do output.
   spec[:out][:lines] = []
   spec[:out][:includes] = []
+  $types = {}
+  $lines = []
+  $includes = []
 end
 
 def includes(ins, outs)

@@ -38,21 +38,37 @@ def aargh(message)
   raise ArgumentError.new(message)
 end
 
-$float_counter = 0
-$string_counter = 0
+$counter = 0
+$escapes = "\"/\\\b\f\r\n\tu"
+$hex = "0123456789abcdef"
 $simples = {
   'string' => {
     :cont => false,
     :gen => Proc.new do
-      Proc.new { (0...8).map { (65 + rand(26)).chr }.join }
+      Proc.new do
+        $counter += 1
+        vals = []
+        (0..(Math.log2($counter + 1).ceil)).map do
+          v = 32 + ($counter % 95)
+          vals.push v.chr
+          if v == 92
+            e = $escapes[$counter % $escapes.size]
+            vals.push e.chr
+            if e == 'u'
+              (0...4).map { |k| vals.push $hex[($counter + k) % 16] }
+            end
+          end
+        end
+        vals.join('')
+      end
     end
     },
   'float' => {
     :cont => false,
     :gen => Proc.new do
       Proc.new do
-        $float_counter += 1
-        (($float_counter % 2 != 0) ? -1 : 1) * 0.27 * $float_counter
+        $counter += 1
+        (($counter % 2 != 0) ? -1 : 1) * 0.27 * $counter
       end
     end
     },

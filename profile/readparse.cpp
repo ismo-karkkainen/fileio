@@ -31,14 +31,14 @@ void read_input(InputChannel& Input, BlockQueue& Storage) {
 
 void parse_input(BlockQueue& Storage) {
     ParserPool pp;
-    ReadFloatArrayIO parser;
+    ReadSomething parser;
     do {
         BlockQueue::BlockPtr block(Storage.Remove());
         if (!block)
             break;
         parser.Scan(&block->front(), &block->back(), pp);
     } while (!parser.Finished());
-    ReadFloatArrayIOValues out;
+    ReadSomethingValues out;
     parser.Swap(out.values);
 }
 

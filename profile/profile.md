@@ -12,9 +12,8 @@ Reads an array of floats from standard input and exits.
 ---
 readfloatarray:
   input:
-    "-typename-": ReadFloatArrayIO
+    "-typename-": ReadSomething
     array:
-      description: Arbitrary length array of floats.
       format: [ array, float ]
       required: true
 ...
@@ -28,10 +27,24 @@ Reads an array of an array of floats from standard input and exits.
 ---
 readfloatarray2:
   input:
-    "-typename-": ReadFloatArrayIO
+    "-typename-": ReadSomething
     array:
-      description: Arbitrary length array of floats.
       format: [ array, array, float ]
+      required: true
+...
+```
+
+## readstringarray
+
+Reads an array of strings from standard input and exits.
+
+```
+---
+readstringarray:
+  input:
+    "-typename-": ReadSomething
+    array:
+      format: [ array, string ]
       required: true
 ...
 ```

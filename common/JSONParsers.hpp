@@ -64,15 +64,18 @@ public:
 
 
 class ParseString : public SimpleValueParser {
+public:
+    typedef std::string Type;
+
 private:
     int count;
     char hex_digits[4];
     bool escaped, began;
 
-    bool scan(const char* Current, ParserPool& Pool) noexcept(false);
+    bool scan(const char Current, Type& out, std::vector<char>& buffer)
+        noexcept(false);
 
 public:
-    typedef std::string Type;
     enum Pool { Index = 1 }; // Has to match ParserPool order.
 
     ParseString() : count(-1), escaped(false), began(false) { }

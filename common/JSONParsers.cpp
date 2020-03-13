@@ -97,17 +97,17 @@ static ParserException StringEscape("String with unknown escape.");
 static ParserException StringHexDigits("String with invalid hex digits.");
 static ParserException StringInvalidCharacter("String with invalid character.");
 
-bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
-    Type& out(std::get<Pool::Index>(Pool.Value));
-    auto&& buffer(Pool.buffer);
+bool ParseString::scan(
+    const char Current, Type& out, std::vector<char>& buffer) noexcept(false)
+{
     if (!escaped && count == -1) {
-        if (*Current != '\\') {
-            if (*Current != '"') {
+        if (Current != '\\') {
+            if (Current != '"') {
                 if constexpr (static_cast<char>(0x80) < 0) {
                     // Signed char.
-                    if (31 < *Current || *Current < 0) {
-                        buffer.push_back(*Current);
-                        if (buffer.size() > out.size()) {
+                    if (31 < Current || Current < 0) {
+                        buffer.push_back(Current);
+                        if (16 < buffer.size() && buffer.size() > out.size()) {
                             out.append(buffer.begin(), buffer.end());
                             buffer.resize(0);
                         }
@@ -115,9 +115,9 @@ bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
                         throw StringInvalidCharacter;
                 } else {
                     // Unsigned char.
-                    if (31 < *Current) {
-                        buffer.push_back(*Current);
-                        if (buffer.size() > out.size()) {
+                    if (31 < Current) {
+                        buffer.push_back(Current);
+                        if (16 < buffer.size() && buffer.size() > out.size()) {
                             out.append(buffer.begin(), buffer.end());
                             buffer.resize(0);
                         }
@@ -131,7 +131,7 @@ bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
         } else
             escaped = true;
     } else if (count != -1) {
-        hex_digits[count++] = *Current;
+        hex_digits[count++] = Current;
         if (count < 4)
             return false;
         int value = 0;
@@ -159,11 +159,11 @@ bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
         }
         count = -1;
     } else {
-        switch (*Current) {
+        switch (Current) {
         case '"':
         case '/':
         case '\\':
-            buffer.push_back(*Current);
+            buffer.push_back(Current);
             break;
         case 'b': buffer.push_back('\b'); break;
         case 'f': buffer.push_back('\f'); break;
@@ -182,6 +182,8 @@ bool ParseString::scan(const char* Current, ParserPool& Pool) noexcept(false) {
 const char* ParseString::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
+    Type& out(std::get<Pool::Index>(Pool.Value));
+    auto& buffer(Pool.buffer);
     if (!began) {
         std::get<Pool::Index>(Pool.Value).resize(0);
         if (*Begin != '"')
@@ -189,12 +191,11 @@ const char* ParseString::Scan(
         began = true;
         ++Begin;
     }
-    while (Begin != End) {
-        if (scan(Begin, Pool)) {
-            began = false;
-            return setFinished(Begin + 1, Pool);
-        }
-        ++Begin;
+    for (; Begin != End; ++Begin) {
+        if (!scan(*Begin, out, buffer))
+            continue;
+        began = false;
+        return setFinished(Begin + 1, Pool);
     }
     return setFinished(nullptr, Pool);
 }

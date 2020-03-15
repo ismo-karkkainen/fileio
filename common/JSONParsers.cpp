@@ -97,108 +97,93 @@ static ParserException StringEscape("String with unknown escape.");
 static ParserException StringHexDigits("String with invalid hex digits.");
 static ParserException StringInvalidCharacter("String with invalid character.");
 
-bool ParseString::scan(
-    const char Current, Type& out, std::vector<char>& buffer) noexcept(false)
-{
-    if (!escaped && count == -1) {
-        if (Current != '\\') {
-            if (Current != '"') {
-                if constexpr (static_cast<char>(0x80) < 0) {
-                    // Signed char.
-                    if (31 < Current || Current < 0) {
-                        buffer.push_back(Current);
-                        if (16 < buffer.size() && buffer.size() > out.size()) {
-                            out.append(buffer.begin(), buffer.end());
-                            buffer.resize(0);
-                        }
-                    } else
-                        throw StringInvalidCharacter;
-                } else {
-                    // Unsigned char.
-                    if (31 < Current) {
-                        buffer.push_back(Current);
-                        if (16 < buffer.size() && buffer.size() > out.size()) {
-                            out.append(buffer.begin(), buffer.end());
-                            buffer.resize(0);
-                        }
-                    } else
-                        throw StringInvalidCharacter;
-                }
-            } else {
-                out.append(buffer.begin(), buffer.end());
-                return true;
-            }
-        } else
-            escaped = true;
-    } else if (count != -1) {
-        hex_digits[count++] = Current;
-        if (count < 4)
-            return false;
-        int value = 0;
-        for (int k = 0; k < 4; ++k) {
-            int m = 0;
-            if ('0' <= hex_digits[k] && hex_digits[k] <= '9')
-                m = hex_digits[k] - '0';
-            else if ('a' <= hex_digits[k] && hex_digits[k] <= 'f')
-                m = 10 + hex_digits[k] - 'a';
-            else if ('A' <= hex_digits[k] && hex_digits[k] <= 'F')
-                m = 10 + hex_digits[k] - 'A';
-            else
-                throw StringHexDigits;
-            value = (value << 4) + m;
-        }
-        if (value < 0x80)
-            buffer.push_back(static_cast<char>(value));
-        else if (value < 0x800) {
-            buffer.push_back(static_cast<char>(0xc0 | ((value >> 6) & 0x1f)));
-            buffer.push_back(static_cast<char>(0x80 | (value & 0x3f)));
-        } else {
-            buffer.push_back(static_cast<char>(0xe0 | ((value >> 12) & 0xf)));
-            buffer.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3f)));
-            buffer.push_back(static_cast<char>(0x80 | (value & 0x3f)));
-        }
-        count = -1;
-    } else {
-        switch (Current) {
-        case '"':
-        case '/':
-        case '\\':
-            buffer.push_back(Current);
-            break;
-        case 'b': buffer.push_back('\b'); break;
-        case 'f': buffer.push_back('\f'); break;
-        case 'n': buffer.push_back('\n'); break;
-        case 'r': buffer.push_back('\r'); break;
-        case 't': buffer.push_back('\t'); break;
-        case 'u': count = 0; break;
-        default:
-            throw StringEscape;
-        }
-        escaped = false;
-    }
-    return false;
-}
-
 const char* ParseString::Scan(
     const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
 {
     Type& out(std::get<Pool::Index>(Pool.Value));
     auto& buffer(Pool.buffer);
-    if (!began) {
-        std::get<Pool::Index>(Pool.Value).resize(0);
+    if (finished) {
         if (*Begin != '"')
             throw StringStart;
-        began = true;
+        std::get<Pool::Index>(Pool.Value).resize(0);
         ++Begin;
     }
-    for (; Begin != End; ++Begin) {
-        if (!scan(*Begin, out, buffer))
-            continue;
-        began = false;
-        return setFinished(Begin + 1, Pool);
+    while (Begin != End) {
+        if (state == Normal) {
+            while (Begin != End) {
+                if (*Begin != '\\') {
+                    if (*Begin != '"') {
+                        if constexpr (static_cast<char>(0x80) < 0) {
+                            // Signed char.
+                            if (0 <= *Begin && *Begin < 32)
+                                throw StringInvalidCharacter;
+                        } else {
+                            if (*Begin < 32)
+                                throw StringInvalidCharacter;
+                        }
+                        buffer.push_back(*Begin++);
+                    } else {
+                        out.append(buffer.begin(), buffer.end());
+                        return setFinished(Begin + 1, Pool);
+                    }
+                } else {
+                    state = Escaped;
+                    ++Begin;
+                    break;
+                }
+            }
+        } else if (state == Unicode) {
+            hex_digits[count++] = *Begin++;
+            if (count < 4)
+                continue;
+            count = 0;
+            state = Normal;
+            int value = 0;
+            for (int k = 0; k < 4; ++k) {
+                int m = 0;
+                if ('0' <= hex_digits[k] && hex_digits[k] <= '9')
+                    m = hex_digits[k] - '0';
+                else if ('a' <= hex_digits[k] && hex_digits[k] <= 'f')
+                    m = 10 + hex_digits[k] - 'a';
+                else if ('A' <= hex_digits[k] && hex_digits[k] <= 'F')
+                    m = 10 + hex_digits[k] - 'A';
+                else
+                    throw StringHexDigits;
+                value = (value << 4) + m;
+            }
+            if (value < 0x80)
+                buffer.push_back(static_cast<char>(value));
+            else if (value < 0x800) {
+                buffer.push_back(static_cast<char>(0xc0 | ((value >> 6) & 0x1f)));
+                buffer.push_back(static_cast<char>(0x80 | (value & 0x3f)));
+            } else {
+                buffer.push_back(static_cast<char>(0xe0 | ((value >> 12) & 0xf)));
+                buffer.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3f)));
+                buffer.push_back(static_cast<char>(0x80 | (value & 0x3f)));
+            }
+        } else { // Escaped.
+            state = Normal;
+            switch (*Begin) {
+            case '"':
+            case '/':
+            case '\\':
+                buffer.push_back(*Begin);
+                break;
+            case 'b': buffer.push_back('\b'); break;
+            case 'f': buffer.push_back('\f'); break;
+            case 'n': buffer.push_back('\n'); break;
+            case 'r': buffer.push_back('\r'); break;
+            case 't': buffer.push_back('\t'); break;
+            case 'u': state = Unicode; break;
+            default:
+                throw StringEscape;
+            }
+            ++Begin;
+        }
     }
     return setFinished(nullptr, Pool);
 }
+
 
 ScanningKeyValue::~ScanningKeyValue() { }
 
@@ -382,20 +367,26 @@ TEST_CASE("String and escapes") {
         std::string valid("\"/\\bfnrtu");
         char escape[] = "\"\\ ";
         for (unsigned char u = 255; 31 < u; --u) {
+            ParserPool pp2;
+            ParseString& parser(std::get<ParserPool::String>(pp2.Parser));
             escape[2] = static_cast<char>(u);
             if (valid.find(escape[2]) == std::string::npos)
-                REQUIRE_THROWS_AS(parser.Scan(escape, escape + 3, pp), ParserException);
+                REQUIRE_THROWS_AS(parser.Scan(escape, escape + 3, pp2), ParserException);
         }
     }
     SUBCASE("Too small") {
+        ParserPool pp2;
+        ParseString& parser(std::get<ParserPool::String>(pp2.Parser));
         char c[] = "\" ";
         c[1] = 0x1f;
-        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp), ParserException);
+        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp2), ParserException);
     }
     SUBCASE("Too small") {
+        ParserPool pp2;
+        ParseString& parser(std::get<ParserPool::String>(pp2.Parser));
         char c[] = "\" ";
         c[1] = 0x1;
-        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp), ParserException);
+        REQUIRE_THROWS_AS(parser.Scan(c, c + 2, pp2), ParserException);
     }
 }
 

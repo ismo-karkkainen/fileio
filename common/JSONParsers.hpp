@@ -68,17 +68,15 @@ public:
     typedef std::string Type;
 
 private:
+    enum State { Normal, Escaped, Unicode };
+    State state;
     int count;
     char hex_digits[4];
-    bool escaped, began;
-
-    bool scan(const char Current, Type& out, std::vector<char>& buffer)
-        noexcept(false);
 
 public:
     enum Pool { Index = 1 }; // Has to match ParserPool order.
 
-    ParseString() : count(-1), escaped(false), began(false) { }
+    ParseString() : state(Normal), count(0) { }
     const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false);
 };

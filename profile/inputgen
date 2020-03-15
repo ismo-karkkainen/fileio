@@ -24,6 +24,11 @@ parser = OptionParser.new do |opts|
 end
 parser.parse!
 
+if $IN.nil? or $OUT.nil?
+  STDERR.puts '--input and --select options must be given.'
+  exit(1)
+end
+
 def file(val, default, mode)
   return default if val.nil?
   begin
@@ -48,7 +53,7 @@ $simples = {
       Proc.new do
         $counter += 1
         vals = []
-        (0..(Math.log2($counter + 1).ceil)).map do
+        (0..(Math.sqrt($counter + 1).ceil)).map do
           v = 32 + ($counter % 95)
           vals.push v.chr
           if v == 92

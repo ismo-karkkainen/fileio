@@ -49,3 +49,18 @@ readstringarray:
 ...
 ```
 
+## readintarray
+
+Reads an array of ints from standard input and exits.
+
+```
+---
+readintarray:
+  input:
+    "-typename-": ReadSomething
+    array:
+      format: [ array, integer ]
+      required: true
+...
+```
+

@@ -82,6 +82,16 @@ public:
 };
 
 
+class ParseInt : public SimpleValueParser {
+public:
+    typedef int Type;
+    enum Pool { Index = 2 }; // Has to match ParserPool order.
+
+    const char* Scan(const char* Begin, const char* End, ParserPool& Pool)
+        noexcept(false);
+};
+
+
 // Holds lowest-level parsers and buffer they share.
 class ParserPool {
 public:
@@ -92,10 +102,10 @@ public:
 
     std::vector<char> buffer;
 
-    enum Parsers { Float, String }; // Match with order below.
+    enum Parsers { Float, String, Int }; // Match with order below.
     // Match order with parsers' Pool enum Index values.
-    std::tuple<ParseFloat, ParseString> Parser;
-    std::tuple<ParseFloat::Type, ParseString::Type> Value;
+    std::tuple<ParseFloat, ParseString, ParseInt> Parser;
+    std::tuple<ParseFloat::Type, ParseString::Type, ParseInt::Type> Value;
 };
 
 

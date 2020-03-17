@@ -48,6 +48,10 @@ $simples = {
     :cont => false,
     :fmt => 'ParseFloat',
     :include => 'JSONParsers.hpp' },
+  'integer' => {
+    :cont => false,
+    :fmt => 'ParseInt',
+    :include => 'JSONParsers.hpp' },
   'array' => {
     :cont => true,
     :fmt => 'ParseArray<%s>',
@@ -157,7 +161,7 @@ class #{t} {
 public:
     #{base}::Type values;
 #{(names.map { |n| "    bool #{n}Given() const { return std::get<#{names.find_index(n)}>(values).Given(); }"}).join("\n")}
-#{(names.map { |n| "    #{values[names.find_index(n)]}::Type #{n}Get() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+#{(names.map { |n| "    #{values[names.find_index(n)]}::Type& #{n}Get() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
 };
 ))
   end

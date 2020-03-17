@@ -29,7 +29,7 @@ endif()
 
 enable_testing()
 
-set(Sources common/JSONParsers.cpp)
+set(Sources common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
 
 add_executable(unittest common/unittest.cpp ${Sources})
 target_include_directories(unittest SYSTEM PRIVATE /usr/local/include)
@@ -52,24 +52,25 @@ set(JSONProfiler common/BlockQueue.cpp common/InputChannel.cpp common/FileDescri
 
 list(TRANSFORM Parsers APPEND "_io.hpp" OUTPUT_VARIABLE ParserHpp)
 add_custom_target(parsers
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o specs ${Parsers}
-    COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i specs
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs ${Parsers}
+    COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i pspecs
     BYPRODUCTS ${ParserHpp})
 
-#add_executable(writeimage common/unittest.cpp ${Sources} )
-#add_dependencies(writeimage parsers)
-#target_include_directories(writeimage SYSTEM /usr/local/include)
-#target_include_directories(writeimage PRIVATE common)
-#target_compile_features(writeimage PRIVATE cxx_std_17)
-#target_compile_options(writeimage PRIVATE ${GenericOptions} )
-#if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    #target_compile_options(writeimage PRIVATE ${ReleaseOptions} )
-#endif()
-#if (UNIX AND NOT APPLE)
-    #target_link_libraries(writeimage PRIVATE Threads::Threads)
-#endif()
+add_executable(writeimage src/writeimage.cpp ${Sources} )
+add_dependencies(writeimage parsers)
+target_include_directories(writeimage SYSTEM PRIVATE /usr/local/include)
+target_include_directories(writeimage PRIVATE common)
+target_include_directories(writeimage PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_compile_features(writeimage PRIVATE cxx_std_17)
+target_compile_options(writeimage PRIVATE ${GenericOptions} )
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+    target_compile_options(writeimage PRIVATE ${ReleaseOptions} )
+endif()
+if (UNIX AND NOT APPLE)
+    target_link_libraries(writeimage PRIVATE Threads::Threads)
+endif()
 
-set(Profilers readfloatarray readfloatarray2 readstringarray)
+set(Profilers readfloatarray readfloatarray2 readstringarray readintarray)
 add_custom_target(profile COMMENT "Building programs to be run with profiler")
 add_dependencies(profile ${Profilers})
 set(JSONProfiler common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
@@ -118,4 +119,17 @@ target_compile_options(readstringarray PRIVATE ${GenericOptions} ${ProfilerOptio
 target_link_libraries(readstringarray PRIVATE ${ProfilerLinkOptions})
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     target_compile_options(readstringarray PRIVATE ${ReleaseOptions})
+endif()
+
+add_executable(readintarray profile/readparse.cpp ${JSONProfiler})
+add_dependencies(readintarray generated)
+target_compile_definitions(readintarray PRIVATE HEADER=readintarray_io.hpp)
+target_include_directories(readintarray SYSTEM PRIVATE /usr/local/include)
+target_include_directories(readintarray PRIVATE common)
+target_include_directories(readintarray PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_compile_features(readintarray PRIVATE cxx_std_17)
+target_compile_options(readintarray PRIVATE ${GenericOptions} ${ProfilerOptions})
+target_link_libraries(readintarray PRIVATE ${ProfilerLinkOptions})
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+    target_compile_options(readintarray PRIVATE ${ReleaseOptions})
 endif()

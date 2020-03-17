@@ -51,18 +51,27 @@ other.
 ---
 writeimage:
   input:
+    "-typename-": WriteImageIO
     filename:
       description: File name string.
       format: string
       required: true
     format:
-      description: File format, determined from file name if not given.
+      description: |
+        File format, determined from file name if not given.
+        Supported formats are TIFF and PNG.
       format: string
       required: false
     image:
       description: Width * height * color planes array.
       format: [ array, array, array, float ]
       required: true
+    depth:
+      description: |
+        Desired bit depth. Rounded up to nearest supported or maximum 16.
+        Currently 8 and 16 are possible.
+      format: integer
+      required: false
     minimum:
       description: Minimum value for range of values in input image.
       format: float

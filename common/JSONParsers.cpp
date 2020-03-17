@@ -185,6 +185,41 @@ const char* ParseString::Scan(
 }
 
 
+static ParserException InvalidInt("Invalid integer.");
+
+const char* ParseInt::Scan(
+    const char* Begin, const char* End, ParserPool& Pool) noexcept(false)
+{
+    Type& out(std::get<ParseInt::Pool::Index>(Pool.Value));
+    char* end = nullptr;
+    if (finished) {
+        out = strtol(Begin, &end, 10);
+        if (end == Begin) {
+            if (Begin == End)
+                return setFinished(nullptr, Pool);
+            if (Begin + 1 != End || (*Begin != '-' && *Begin != '+'))
+                throw InvalidInt;
+        } else if (end != End)
+            return setFinished(end); // Good up to this.
+        while (Begin != End)
+            Pool.buffer.push_back(*Begin++);
+        return setFinished(nullptr, Pool);
+    }
+    // Start of the number is in buffer. Input is null-terminated.
+    while (('0' <= *Begin && *Begin <= '9') || *Begin == '-' || *Begin == '+')
+        Pool.buffer.push_back(*Begin++);
+    if (Begin == End) // Continues on and on?
+        return setFinished(nullptr, Pool);
+    std::string s(Pool.buffer.begin(), Pool.buffer.end());
+    out = strtol(s.c_str(), &end, 10);
+    // Separator scan will throw if the string in source is not a number.
+    // Require that all chars are the number as there was no separator copied.
+    if (end != s.c_str() + s.size())
+        throw InvalidInt;
+    return setFinished(Begin, Pool);
+}
+
+
 ScanningKeyValue::~ScanningKeyValue() { }
 
 void ScanningKeyValue::Give(ValueStore* VS) {
@@ -251,6 +286,22 @@ TEST_CASE("Floats") {
         pp.buffer.resize(0);
         std::string s0("-");
         std::string s("0.9 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == -0.9f);
+    }
+    SUBCASE("|-0.9") {
+        pp.buffer.resize(0);
+        std::string s0("");
+        std::string s("-0.9 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == -0.9f);
+    }
+    SUBCASE("-0.9|") {
+        pp.buffer.resize(0);
+        std::string s0("-0.9");
+        std::string s(" ");
         REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
         REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
         REQUIRE(out == -0.9f);
@@ -439,6 +490,100 @@ TEST_CASE("String Unicode") {
         std::string s("\"\\uFFFF\"");
         REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size());
         REQUIRE(out == "\xEF\xBF\xBF");
+    }
+}
+
+TEST_CASE("Integer") {
+    ParserPool pp;
+    int& out(std::get<ParserPool::Int>(pp.Value));
+    ParseInt& parser(std::get<ParserPool::Int>(pp.Parser));
+    SUBCASE("123") {
+        pp.buffer.resize(0);
+        std::string s("123 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("-123") {
+        pp.buffer.resize(0);
+        std::string s("-123 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == -123);
+    }
+    SUBCASE("+123") {
+        pp.buffer.resize(0);
+        std::string s("+123 ");
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("1|23") {
+        pp.buffer.resize(0);
+        std::string s0("1");
+        std::string s("23 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("1|2|3") {
+        pp.buffer.resize(0);
+        std::string s0("1");
+        std::string s1("2");
+        std::string s("3 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s1.c_str(), s1.c_str() + s1.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("-|123") {
+        pp.buffer.resize(0);
+        std::string s0("-");
+        std::string s("123 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == -123);
+    }
+    SUBCASE("+|123") {
+        pp.buffer.resize(0);
+        std::string s0("+");
+        std::string s("123 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("|123") {
+        pp.buffer.resize(0);
+        std::string s0("");
+        std::string s("123 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("123|") {
+        pp.buffer.resize(0);
+        std::string s0("123");
+        std::string s(" ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str() + s.size() - 1);
+        REQUIRE(out == 123);
+    }
+    SUBCASE("123|x") {
+        pp.buffer.resize(0);
+        std::string s0("123");
+        std::string s("x ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE(parser.Scan(s.c_str(), s.c_str() + s.size(), pp) == s.c_str());
+        REQUIRE(out == 123);
+    }
+    SUBCASE("invalid") {
+        pp.buffer.resize(0);
+        std::string s("invalid");
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
+    }
+    SUBCASE("123|-456") {
+        pp.buffer.resize(0);
+        std::string s0("123");
+        std::string s("-456 ");
+        REQUIRE(parser.Scan(s0.c_str(), s0.c_str() + s0.size(), pp) == nullptr);
+        REQUIRE_THROWS_AS(parser.Scan(s.c_str(), s.c_str() + s.size(), pp), ParserException);
     }
 }
 

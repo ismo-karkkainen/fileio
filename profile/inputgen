@@ -77,6 +77,15 @@ $simples = {
       end
     end
     },
+  'integer' => {
+    :cont => false,
+    :gen => Proc.new do
+      Proc.new do
+        $counter += 1
+        ($counter % 2 != 0) ? -$counter : $counter
+      end
+    end
+    },
   'array' => {
     :cont => true,
     :gen => Proc.new do |count, sub|

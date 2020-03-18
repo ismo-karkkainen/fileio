@@ -89,7 +89,7 @@ $simples = {
   'array' => {
     :cont => true,
     :gen => Proc.new do |count, sub|
-      Proc.new { (0..count).map { sub.call } }
+      Proc.new { (0...count).map { sub.call } }
     end
     },
   'object' => {
@@ -111,7 +111,7 @@ def gen_input(format, count)
   item = format.shift
   if item.is_a? String
     size = format.size
-    contained = format.empty? ? nil : gen_input(format, count / 100)
+    contained = format.empty? ? nil : gen_input(format, count / 10)
     ti = $simples.fetch(item)
     aargh("input format: #{item}") if ti.nil?
     aargh("input format: non-container not last: #{item}") if 0 < size and ti[:cont] == false
@@ -126,7 +126,7 @@ def gen_input(format, count)
     items = spec.fetch('format', nil)
     aargh("input #{name} no format") if items.nil?
     names.push name
-    subs.push gen_input(items, count / 100)
+    subs.push gen_input(items, count / 10)
   end
   return $simples['object'][:gen].call(names, subs)
 end

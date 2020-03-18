@@ -32,7 +32,7 @@ readimage:
       required: false
   output:
     image:
-      description: Width * height * color planes array in [minimum, maximum].
+      description: Height * width * color planes array in [minimum, maximum].
       format: array
       required: true
 ...
@@ -63,7 +63,7 @@ writeimage:
       format: string
       required: false
     image:
-      description: Width * height * color planes array.
+      description: Height * width * color planes array.
       format: [ array, array, array, float ]
       required: true
     depth:

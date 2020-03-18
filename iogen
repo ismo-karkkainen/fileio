@@ -159,9 +159,13 @@ def add_named_type(names, values, base)
     $lines.push(%Q(
 class #{t} {
 public:
+#{(names.map { |n| "    typedef #{values[names.find_index(n)]}::Type #{n}Type;"}).join("\n")}
     #{base}::Type values;
+
 #{(names.map { |n| "    bool #{n}Given() const { return std::get<#{names.find_index(n)}>(values).Given(); }"}).join("\n")}
-#{(names.map { |n| "    #{values[names.find_index(n)]}::Type& #{n}Get() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+
+#{(names.map { |n| "    #{n}Type& #{n}() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+#{(names.map { |n| "    const #{n}Type& #{n}() const { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
 };
 ))
   end

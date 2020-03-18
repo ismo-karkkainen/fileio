@@ -45,9 +45,10 @@ if (UNIX AND NOT APPLE)
 endif()
 add_test(NAME UnitTest COMMAND unittest)
 
+find_package(TIFF)
+
 set(Parsers readimage writeimage)
 add_custom_target(parser COMMENT "Generate parsers for main programs.")
-#add_dependencies(parser ${Parsers})
 set(JSONProfiler common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
 
 list(TRANSFORM Parsers APPEND "_io.hpp" OUTPUT_VARIABLE ParserHpp)
@@ -59,8 +60,10 @@ add_custom_target(parsers
 add_executable(writeimage src/writeimage.cpp ${Sources} )
 add_dependencies(writeimage parsers)
 target_include_directories(writeimage SYSTEM PRIVATE /usr/local/include)
+target_include_directories(writeimage SYSTEM PRIVATE ${TIFF_INCLUDE_DIR})
 target_include_directories(writeimage PRIVATE common)
 target_include_directories(writeimage PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(writeimage PRIVATE ${TIFF_LIBRARY})
 target_compile_features(writeimage PRIVATE cxx_std_17)
 target_compile_options(writeimage PRIVATE ${GenericOptions} )
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")

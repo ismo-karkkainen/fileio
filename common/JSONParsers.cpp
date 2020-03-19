@@ -82,11 +82,11 @@ const char* ParseFloat::Scan(
             Pool.buffer.push_back(*Begin++);
     if (Begin == End) // Continues on and on?
         return setFinished(nullptr, Pool);
-    std::string s(Pool.buffer.begin(), Pool.buffer.end());
-    out = strtof(s.c_str(), &end);
+    Pool.buffer.push_back(0);
+    out = strtof(&Pool.buffer.front(), &end);
     // Separator scan will throw if the string in source is not a number.
     // Require that all chars are the number as there was no separator copied.
-    if (end != s.c_str() + s.size())
+    if (end != &Pool.buffer.back())
         throw InvalidFloat;
     return setFinished(Begin, Pool);
 }
@@ -197,6 +197,7 @@ const char* ParseInt::Scan(
         if (end == Begin) {
             if (Begin == End)
                 return setFinished(nullptr, Pool);
+            // Unless only sign fit, throw.
             if (Begin + 1 != End || (*Begin != '-' && *Begin != '+'))
                 throw InvalidInt;
         } else if (end != End)
@@ -210,11 +211,11 @@ const char* ParseInt::Scan(
         Pool.buffer.push_back(*Begin++);
     if (Begin == End) // Continues on and on?
         return setFinished(nullptr, Pool);
-    std::string s(Pool.buffer.begin(), Pool.buffer.end());
-    out = strtol(s.c_str(), &end, 10);
+    Pool.buffer.push_back(0);
+    out = strtol(&Pool.buffer.front(), &end, 10);
     // Separator scan will throw if the string in source is not a number.
     // Require that all chars are the number as there was no separator copied.
-    if (end != s.c_str() + s.size())
+    if (end != &Pool.buffer.back())
         throw InvalidInt;
     return setFinished(Begin, Pool);
 }

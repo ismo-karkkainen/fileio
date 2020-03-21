@@ -7,9 +7,15 @@
 #include <tiffio.h>
 #include <vector>
 #include <cmath>
+#include <fstream>
+#include <cstddef>
+#include <iterator>
+#include <cstdint>
 
 
 typedef int (*WriteFunc)(const WriteImageIOValues::filenameType&, const WriteImageIOValues::imageType&, WriteImageIOValues::depthType);
+
+// TIFF
 
 static int writeTIFF(const WriteImageIOValues::filenameType& filename,
     const WriteImageIOValues::imageType& image,
@@ -60,10 +66,142 @@ static int writeTIFF(const WriteImageIOValues::filenameType& filename,
     return 0;
 }
 
+// PNG
+
+template<typename T>
+class Buffer : public std::vector<T> {
+public:
+    Buffer& operator<<(T c) {
+        this->push_back(c);
+        return *this;
+    }
+};
+
+static void add_adler32(Buffer<char>& buf, size_t start) {
+    uint32_t s1 = 1; // Or use 16-bit values?
+    uint32_t s2 = 0;
+    for (; start < buf.size(); ++start) {
+        s1 = (s1 + buf[start]) % 65521;
+        s2 = (s2 + s1) % 65521;
+    }
+    buf << ((s2 >> 8) & 0xff) << (s2 & 0xff)
+        << ((s1 >> 8) & 0xff) << (s1 & 0xff);
+}
+
+// https://www.w3.org/TR/PNG/#D-CRCAppendix
+static std::uint32_t crc_table[256];
+static void make_crc_table() {
+    for (std::uint32_t n = 0; n < 256; ++n) {
+        std::uint32_t c = n;
+        for (int k = 0; k < 8; ++k)
+            c = (c & 1) ? 0xedb88320L ^ (c >> 1) : c >> 1;
+        crc_table[n] = c;
+    }
+}
+
+static void add_crc(Buffer<char>& buf) {
+    unsigned char* b = reinterpret_cast<unsigned char*>((&buf.front()) + 4);
+    unsigned char* e = b + buf.size() - 4;
+    std::uint32_t c = 0xffFFffFFL;
+    for (; b != e; ++b)
+        c = crc_table[(c ^ *b) & 0xff] ^ (c >> 8);
+    c = c ^ 0xffFFffFFL;
+    buf << ((c >> 24) & 0xff)
+        << ((c >> 16) & 0xff)
+        << ((c >> 8) & 0xff)
+        << (c & 0xff);
+}
+
 static int writePNG(const WriteImageIOValues::filenameType& filename,
     const WriteImageIOValues::imageType& image,
     WriteImageIOValues::depthType depth)
 {
+    // https://stackoverflow.com/questions/7942635/write-png-quickly
+    make_crc_table();
+    // https://www.w3.org/TR/PNG/#11Chunks
+    std::ofstream out(filename,
+        std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+    // Signature.
+    unsigned char sig[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
+    out.write(reinterpret_cast<char*>(sig), 8);
+    Buffer<char> buf;
+    // IHDR
+    buf << 0 << 0 << 0 << 0
+        << 73 << 72 << 68 << 82
+        << ((image[0].size() >> 24) & 0xff)
+        << ((image[0].size() >> 16) & 0xff)
+        << ((image[0].size() >> 8) & 0xff)
+        << (image[0].size() & 0xff)
+        << ((image.size() >> 24) & 0xff)
+        << ((image.size() >> 16) & 0xff)
+        << ((image.size() >> 8) & 0xff)
+        << (image.size() & 0xff)
+        << (depth & 0xff) << 2 << 0 << 0 << 0;
+    buf[3] = buf.size() - 8;
+    add_crc(buf);
+    out.write(&buf.front(), buf.size());
+    // All lines, 0 for filter per line, then pixels.
+    decltype(buf) filtered;
+    for (auto& line : image) {
+        filtered << 0; // No filtering.
+        for (auto& pixel : line)
+            for (auto& component : pixel)
+                if (depth == 8)
+                    filtered << static_cast<char>(static_cast<unsigned char>(
+                        round(255 * component)));
+                else {
+                    std::uint16_t val = static_cast<std::uint16_t>(
+                        round(65535 * component));
+                    filtered << static_cast<char>((val >> 8) & 0xff)
+                        << static_cast<char>(val & 0xff);
+                }
+    }
+    buf.resize(0);
+    size_t header = 0;
+    size_t sz = 0;
+    size_t limit = filtered.size() / 65535;
+    if (filtered.size() % (65535 * limit) != 0)
+        limit = filtered.size() / (limit + 1);
+    for (size_t k = 0; k < filtered.size(); ++k) {
+        if (buf.size() == 0) {
+            buf << 0 << 0 << 0 << 0;
+            buf << 73 << 68 << 65 << 84;
+            if (k == 0) {
+                buf << 8; // No compression.
+                buf << 0x1d;
+            }
+            size_t remain = filtered.size() - k;
+            sz = remain;
+            if (remain < limit) {
+                // Size and its complement are least-significant byte first.
+                buf << 1 << (remain & 0xff) << ((remain >> 8) & 0xff);
+                buf << ~buf[buf.size() - 2] << ~buf[buf.size() - 2];
+            } else {
+                sz = limit;
+                buf << 0 << (limit & 0xff) << ((limit >> 8) & 0xff);
+                buf << ~buf[buf.size() - 2] << ~buf[buf.size() - 2];
+            }
+            header = buf.size();
+            sz += header;
+        }
+        buf << filtered[k];
+        if (buf.size() == sz) {
+            if (buf[header - 5])
+                add_adler32(buf, header - 5);
+            buf[0] = ((buf.size() - 8) >> 24) & 0xff;
+            buf[1] = ((buf.size() - 8) >> 16) & 0xff;
+            buf[2] = ((buf.size() - 8) >> 8) & 0xff;
+            buf[3] = (buf.size() - 8) & 0xff;
+            add_crc(buf);
+            out.write(&buf.front(), buf.size());
+            buf.resize(0);
+        }
+    }
+    buf << 0 << 0 << 0 << 0;
+    buf << 73 << 69 << 78 << 68;
+    add_crc(buf);
+    out.write(&buf.front(), buf.size());
+    out.close();
     return 0;
 }
 

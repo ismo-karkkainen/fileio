@@ -1,0 +1,82 @@
+#!/usr/bin/env ruby
+
+# Copyright 2020 Ismo Kärkkäinen
+# Licensed under Universal Permissive License. See License.txt.
+
+require 'optparse'
+require 'json'
+
+$IN = nil
+$WIDTH = 256
+$HEIGHT = 256
+$DEPTH = 8
+$OUTPUT = nil
+$FORMAT = nil
+ENV['POSIXLY_CORRECT'] = '1'
+parser = OptionParser.new do |opts|
+  opts.summary_indent = '  '
+  opts.summary_width = 26
+  opts.banner = "Usage: inputgen [options]"
+  opts.separator ""
+  opts.separator "Options:"
+  opts.on('-i', '--input OUTPUT') { |f| $IN = f }
+  opts.on('-w', '--width WIDTH') { |w| $WIDTH = Integer(w) }
+  opts.on('-h', '--height HEIGHT') { |h| $HEIGHT = Integer(h) }
+  opts.on('-d', '--depth DEPTH') { |d| $DEPTH = Integer(d) }
+  opts.on('-f', '--filename OUTPUT') { |f| $OUTPUT = f }
+  opts.on('--format FORMAT') { |f| $FORMAT = f }
+  opts.on('--help', 'Print this help and exit.') do
+    STDOUT.puts opts
+    exit 0
+  end
+end
+parser.parse!
+
+if $IN.nil? or $OUTPUT.nil?
+  STDERR.puts '--input and --filename options must be given.'
+  exit(1)
+end
+
+def file(val, default, mode)
+  return default if val.nil?
+  begin
+    return File.open(val, mode)
+  rescue StandardError
+    STDERR.puts "Failed to open for #{mode}: #{val}"
+    exit 1
+  end
+end
+
+def aargh(message)
+  raise ArgumentError.new(message)
+end
+
+def gen_image(width, height)
+  img = []
+  (0...height).each do |h|
+    img.push([])
+    (0...width).each do |w|
+      img.last.push([])
+      img.last.last.push((w * (width / (width - 1.0))) / width)
+      img.last.last.push((h * (height / (height - 1.0))) / height)
+      img.last.last.push((w % 16 == 0) ? 1 : (h % 16 == 0) ? 1 : 0)
+    end
+  end
+  return img
+end
+
+input = file($IN, STDIN, 'r')
+specs = JSON.parse(input.gets(nil))
+
+out = {}
+specs.each_pair do |basename, spec|
+  next if basename != 'writeimage'
+  out[basename] = { 'filename' => $OUTPUT, 'depth' => $DEPTH }
+  out[basename]['format'] = $FORMAT unless $FORMAT.nil?
+  out[basename]['image'] = gen_image($WIDTH, $HEIGHT)
+end
+
+out.each_pair do |basename, output|
+  f = file("#{basename}.json", nil, 'w')
+  f.puts(JSON.generate(output))
+end

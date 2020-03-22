@@ -101,6 +101,9 @@ directory parallel to the imageio directory, you can use:
     cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=RELEASE ../imageio
     cmake -G Xcode
 
+TIFF support depends on whether TIFF library is found. You can disable TIFF
+support by setting NO_TIFF to any value, for example: NO_TIFF=1 cmake ...
+
 To specify the compiler, set for example:
 
     CXX=clang++

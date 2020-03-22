@@ -4,17 +4,20 @@
 #include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
-#include <tiffio.h>
 #include <vector>
 #include <cmath>
 #include <fstream>
 #include <cstddef>
 #include <iterator>
 #include <cstdint>
+#if !defined(NO_TIFF)
+#include <tiffio.h>
+#endif
 
 
 typedef int (*WriteFunc)(const WriteImageIOValues::filenameType&, const WriteImageIOValues::imageType&, WriteImageIOValues::depthType);
 
+#if !defined(NO_TIFF)
 // TIFF
 
 static int writeTIFF(const WriteImageIOValues::filenameType& filename,
@@ -65,6 +68,7 @@ static int writeTIFF(const WriteImageIOValues::filenameType& filename,
     TIFFClose(t);
     return 0;
 }
+#endif
 
 // PNG
 
@@ -159,9 +163,6 @@ static int writePNG(const WriteImageIOValues::filenameType& filename,
     buf.resize(0);
     size_t header = 0;
     size_t sz = 0;
-    size_t limit = filtered.size() / 65535;
-    if (filtered.size() % (65535 * limit) != 0)
-        limit = filtered.size() / (limit + 1);
     for (size_t k = 0; k < filtered.size(); ++k) {
         if (buf.size() == 0) {
             buf << 0 << 0 << 0 << 0;
@@ -171,15 +172,14 @@ static int writePNG(const WriteImageIOValues::filenameType& filename,
                 buf << 0x1d;
             }
             size_t remain = filtered.size() - k;
-            sz = remain;
-            if (remain < limit) {
+            if (remain < 65536) {
                 // Size and its complement are least-significant byte first.
                 buf << 1 << (remain & 0xff) << ((remain >> 8) & 0xff);
                 buf << ~buf[buf.size() - 2] << ~buf[buf.size() - 2];
+                sz = remain;
             } else {
-                sz = limit;
-                buf << 0 << (limit & 0xff) << ((limit >> 8) & 0xff);
-                buf << ~buf[buf.size() - 2] << ~buf[buf.size() - 2];
+                buf << 0 << 0xff << 0xff << 0 << 0;
+                sz = 65535;
             }
             header = buf.size();
             sz += header;
@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
         std::cerr << "Image has zero height." << std::endl;
         return 3;
     }
-    if (val.image().empty() || val.image()[0].empty()) {
+    if (val.image()[0].empty()) {
         std::cerr << "Image has zero width." << std::endl;
         return 3;
     }
@@ -245,6 +245,7 @@ int main(int argc, char** argv) {
         val.format() = val.filename().substr(last + 1);
     }
     WriteFunc writer = nullptr;
+#if !defined(NO_TIFF)
     if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
         strcasecmp(val.format().c_str(), "tif") == 0)
     {
@@ -254,14 +255,17 @@ int main(int argc, char** argv) {
             val.depth() = 16;
         else if (val.depth() <= 8)
             val.depth() = 8;
-    } else if (strcasecmp(val.format().c_str(), "png") == 0) {
+    }
+#endif
+    if (strcasecmp(val.format().c_str(), "png") == 0) {
         // PNG-writer.
         writer = &writePNG;
         if (8 < val.depth())
             val.depth() = 16;
         else if (val.depth() <= 8)
             val.depth() = 8;
-    } else {
+    }
+    if (writer == nullptr) {
         std::cerr << "Unsupported format: " << val.format() << std::endl;
         return 4;
     }

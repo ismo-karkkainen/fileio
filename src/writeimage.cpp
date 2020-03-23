@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <iterator>
 #include <cstdint>
+#include <sstream>
 #if !defined(NO_TIFF)
 #include <tiffio.h>
 #endif
@@ -29,13 +30,38 @@ static int writeTIFF(const WriteImageIOValues::filenameType& filename,
         std::cerr << "Failed to open output file: " << filename << std::endl;
         return 10;
     }
-    TIFFSetField(t, TIFFTAG_IMAGEWIDTH, image[0].size());
-    TIFFSetField(t, TIFFTAG_IMAGELENGTH, image.size());
-    TIFFSetField(t, TIFFTAG_SAMPLESPERPIXEL, image[0][0].size());
-    TIFFSetField(t, TIFFTAG_BITSPERSAMPLE, depth);
+    TIFFSetField(t, TIFFTAG_IMAGEWIDTH,
+        static_cast<std::uint32_t>(image[0].size()));
+    TIFFSetField(t, TIFFTAG_IMAGELENGTH,
+        static_cast<std::uint32_t>(image.size()));
+    TIFFSetField(t, TIFFTAG_SAMPLESPERPIXEL,
+        static_cast<std::uint16_t>(image[0][0].size()));
+    TIFFSetField(t, TIFFTAG_BITSPERSAMPLE, static_cast<std::uint16_t>(depth));
+    TIFFSetField(t, TIFFTAG_MAXSAMPLEVALUE,
+        static_cast<std::uint16_t>((1 << depth) - 1));
+    TIFFSetField(t, TIFFTAG_MINSAMPLEVALUE, 0);
+    TIFFSetField(t, TIFFTAG_COMPRESSION, static_cast<std::uint16_t>(1));
     TIFFSetField(t, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
     TIFFSetField(t, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
-    TIFFSetField(t, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+    if (image[0][0].size() < 3) {
+        TIFFSetField(t, TIFFTAG_PHOTOMETRIC, static_cast<std::uint16_t>(1));
+        if (image[0][0].size() == 2) {
+            std::uint16_t other(2);
+            TIFFSetField(t, TIFFTAG_EXTRASAMPLES,
+                static_cast<std::uint16_t>(1), &other);
+        }
+    } else {
+        TIFFSetField(t, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+        if (image[0][0].size() > 3) {
+            // Guess that the first is unassociated alpha and the rest unknown.
+            std::vector<std::uint16_t> other;
+            other.push_back(2);
+            for (size_t k = 4; k < image[0][0].size(); ++k)
+                other.push_back(0);
+            TIFFSetField(t, TIFFTAG_EXTRASAMPLES,
+                static_cast<std::uint16_t>(other.size()), &other.front());
+        }
+    }
     uint32 count = 0;
     std::vector<unsigned char> d8;
     d8.reserve(image[0].size() * image[0][0].size());
@@ -205,6 +231,37 @@ static int writePNG(const WriteImageIOValues::filenameType& filename,
     return 0;
 }
 
+// PPM, NetPBM color image binary format.
+
+static int writePPM(const WriteImageIOValues::filenameType& filename,
+    const WriteImageIOValues::imageType& image,
+    WriteImageIOValues::depthType depth)
+{
+    std::ofstream out(filename,
+        std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
+    std::stringstream header;
+    header << "P6\n" << image[0].size() << '\n' << image.size() << '\n'
+        << ((depth == 8) ? "255" : "65535") << '\n';
+    out << header.str();
+    Buffer<char> buf;
+    for (auto& line : image)
+        for (auto& pixel : line)
+            for (auto& component : pixel)
+                if (depth == 8)
+                    buf << static_cast<char>(static_cast<unsigned char>(
+                        round(255 * component)));
+                else {
+                    std::uint16_t val = static_cast<std::uint16_t>(
+                        round(65535 * component));
+                    buf << static_cast<char>((val >> 8) & 0xff)
+                        << static_cast<char>(val & 0xff);
+                }
+    out.write(&buf.front(), buf.size());
+    out.close();
+    return 0;
+}
+
+
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
@@ -228,11 +285,6 @@ int main(int argc, char** argv) {
     }
     if (val.image()[0].empty()) {
         std::cerr << "Image has zero width." << std::endl;
-        return 3;
-    }
-    if (val.image()[0][0].size() != 3) {
-        std::cerr << "Got " << val.image()[0][0].size() <<
-            " color planes, not 3." << std::endl;
         return 3;
     }
     // Check type presence. If not given, use file name extension.
@@ -264,6 +316,24 @@ int main(int argc, char** argv) {
             val.depth() = 16;
         else if (val.depth() <= 8)
             val.depth() = 8;
+        if (val.image()[0][0].size() != 3) {
+            std::cerr << "Got " << val.image()[0][0].size() <<
+                " color planes, not 3." << std::endl;
+            return 3;
+        }
+    }
+    if (strcasecmp(val.format().c_str(), "ppm") == 0) {
+        // PPM-writer.
+        writer = &writePPM;
+        if (8 < val.depth())
+            val.depth() = 16;
+        else if (val.depth() <= 8)
+            val.depth() = 8;
+        if (val.image()[0][0].size() != 3) {
+            std::cerr << "Got " << val.image()[0][0].size() <<
+                " color planes, not 3." << std::endl;
+            return 3;
+        }
     }
     if (writer == nullptr) {
         std::cerr << "Unsupported format: " << val.format() << std::endl;

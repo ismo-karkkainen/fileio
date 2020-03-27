@@ -29,7 +29,7 @@ endif()
 
 enable_testing()
 
-set(Sources common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp)
+set(Sources common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp common/JSONWriters.cpp)
 
 add_executable(unittest common/unittest.cpp ${Sources})
 target_include_directories(unittest SYSTEM PRIVATE /usr/local/include)

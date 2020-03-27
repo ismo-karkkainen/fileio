@@ -16,14 +16,14 @@
 #endif
 
 
-typedef int (*WriteFunc)(const WriteImageIOValues::filenameType&, const WriteImageIOValues::imageType&, WriteImageIOValues::depthType);
+typedef int (*WriteFunc)(const WriteImageInValues::filenameType&, const WriteImageInValues::imageType&, WriteImageInValues::depthType);
 
 #if !defined(NO_TIFF)
 // TIFF
 
-static int writeTIFF(const WriteImageIOValues::filenameType& filename,
-    const WriteImageIOValues::imageType& image,
-    WriteImageIOValues::depthType depth)
+static int writeTIFF(const WriteImageInValues::filenameType& filename,
+    const WriteImageInValues::imageType& image,
+    WriteImageInValues::depthType depth)
 {
     TIFF* t = TIFFOpen(filename.c_str(), "w");
     if (!t) {
@@ -142,9 +142,9 @@ static void add_crc(Buffer<char>& buf) {
         << (c & 0xff);
 }
 
-static int writePNG(const WriteImageIOValues::filenameType& filename,
-    const WriteImageIOValues::imageType& image,
-    WriteImageIOValues::depthType depth)
+static int writePNG(const WriteImageInValues::filenameType& filename,
+    const WriteImageInValues::imageType& image,
+    WriteImageInValues::depthType depth)
 {
     // https://stackoverflow.com/questions/7942635/write-png-quickly
     make_crc_table();
@@ -233,9 +233,9 @@ static int writePNG(const WriteImageIOValues::filenameType& filename,
 
 // PPM, NetPBM color image binary format.
 
-static int writePPM(const WriteImageIOValues::filenameType& filename,
-    const WriteImageIOValues::imageType& image,
-    WriteImageIOValues::depthType depth)
+static int writePPM(const WriteImageInValues::filenameType& filename,
+    const WriteImageInValues::imageType& image,
+    WriteImageInValues::depthType depth)
 {
     std::ofstream out(filename,
         std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
@@ -267,9 +267,9 @@ int main(int argc, char** argv) {
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
     FileDescriptorInput input(f);
-    WriteImageIOValues val;
+    WriteImageInValues val;
     try {
-        ThreadedReadParse<WriteImageIO, WriteImageIOValues> reader(input, val);
+        ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(input, val);
         if (f)
             close(f);
         if (!reader.Finished())
@@ -297,31 +297,6 @@ int main(int argc, char** argv) {
         val.format() = val.filename().substr(last + 1);
     }
     WriteFunc writer = nullptr;
-#if !defined(NO_TIFF)
-    if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
-        strcasecmp(val.format().c_str(), "tif") == 0)
-    {
-        // TIFF-writer.
-        writer = &writeTIFF;
-        if (8 < val.depth())
-            val.depth() = 16;
-        else if (val.depth() <= 8)
-            val.depth() = 8;
-    }
-#endif
-    if (strcasecmp(val.format().c_str(), "png") == 0) {
-        // PNG-writer.
-        writer = &writePNG;
-        if (8 < val.depth())
-            val.depth() = 16;
-        else if (val.depth() <= 8)
-            val.depth() = 8;
-        if (val.image()[0][0].size() != 3) {
-            std::cerr << "Got " << val.image()[0][0].size() <<
-                " color planes, not 3." << std::endl;
-            return 3;
-        }
-    }
     if (strcasecmp(val.format().c_str(), "ppm") == 0) {
         // PPM-writer.
         writer = &writePPM;
@@ -334,8 +309,34 @@ int main(int argc, char** argv) {
                 " color planes, not 3." << std::endl;
             return 3;
         }
-    }
-    if (writer == nullptr) {
+#if !defined(NO_TIFF)
+    } else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
+        strcasecmp(val.format().c_str(), "tif") == 0)
+    {
+        // TIFF-writer.
+        writer = &writeTIFF;
+        if (8 < val.depth())
+            val.depth() = 16;
+        else if (val.depth() <= 8)
+            val.depth() = 8;
+        if (val.image()[0][0].size() == 0) {
+            std::cerr << "Got 0 color planes." << std::endl;
+            return 3;
+        }
+#endif
+    } else if (strcasecmp(val.format().c_str(), "png") == 0) {
+        // PNG-writer.
+        writer = &writePNG;
+        if (8 < val.depth())
+            val.depth() = 16;
+        else if (val.depth() <= 8)
+            val.depth() = 8;
+        if (val.image()[0][0].size() != 3) {
+            std::cerr << "Got " << val.image()[0][0].size() <<
+                " color planes, not 3." << std::endl;
+            return 3;
+        }
+    } else {
         std::cerr << "Unsupported format: " << val.format() << std::endl;
         return 4;
     }

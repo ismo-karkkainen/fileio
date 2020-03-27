@@ -80,6 +80,7 @@ def check_input(format)
     else
       ti = $containers.fetch(item)
     end
+    # Should check if top-level has a matching object?
     aargh("input format: #{item}") if ti.nil?
     aargh("input format: non-container not last: #{item}") if 0 < size and ti[:cont] == false
     aargh("input format: container last: #{item}") if size == 0 and ti[:cont]
@@ -113,15 +114,61 @@ def check_input(format)
 end
 
 def check_output(format)
-  return {}
+  return {} if format.nil?
+  format = [ format ] unless format.is_a? Array
+  item = format.shift
+  if item.is_a? String
+    info = [ { :include => 'JSONWriters.hpp' } ]
+    reqs = []
+    unless format.empty?
+      contained = check_output(format)
+      info.concat(contained)
+      reqs = contained.first.fetch(:deps, []);
+    end
+    info.first[:deps] = reqs
+    return info
+  end
+  # Object.
+  info = []
+  object_name = nil
+  reqs = []
+  separator = '.'
+  item.each_pair do |name, spec|
+    if name == '-typename-'
+      object_name = spec
+      next
+    end
+    if name == '-separator-'
+      separator = spec
+      next
+    end
+    items = spec.fetch('format', nil)
+    aargh("output #{name} no format") if items.nil?
+    fmt = check_output(items)
+    reqs.concat(fmt.first[:deps])
+    info.push({
+      :name => name,
+      :req => spec.fetch('required', false),
+      :fmt => fmt,
+      :checker => spec.fetch('-checker-', "#{name}Given()"),
+      :getter => spec.fetch('-getter-', "#{name}()")
+    })
+  end
+  aargh("output no object name") if object_name.nil?
+  return {
+    :fields => info,
+    :name => object_name,
+    :deps => reqs,
+    :sep => separator
+  }
 end
 
 input = file($IN, STDIN, 'r')
 specs = JSON.parse(input.gets(nil))
 parsed = {}
 specs.each_pair do |basename, spec|
-  incoming = check_input(spec.fetch('input', {}))
-  outgoing = check_output(spec.fetch('output', {}))
+  incoming = check_input(spec.fetch('input', nil))
+  outgoing = check_output(spec.fetch('output', nil))
   if incoming.fetch(:fields, []).empty? and outgoing.fetch(:fields, []).empty?
     aargh("#{basename} no input nor output")
   end
@@ -197,6 +244,153 @@ def define_types(info)
   end
 end
 
+def define_function(info)
+  # Add to types an object with lines and requirements.
+  info[:fields].each do |f|
+    $includes.push(f[:include]) if f.has_key? :include
+  end
+  fields = info[:fields]
+  # Forward declaration for the type name used below.
+  # Then you can use the generated template (if any) with typedef if needed.
+  lines = [ "\n\nclass #{info[:name]};" ]
+  fwd = %Q(template<typename Sink>
+void Write(Sink& S, const #{info[:name]}& Value, std::vector<char>& Buffer))
+  lines.push %Q(
+#{fwd} {
+    char c = '{';
+    bool separated = false;
+    S.write(&c, 1);)
+  prev_req = false
+  names = []
+  can_make_template = true
+  fields.each_index do |idx|
+    f = fields[idx]
+    f[:idx] = idx
+    f[:tn] = "T#{idx}"
+    # We can assume in template generation that checker and getter are
+    # either parameterless methods or they access a member variable directly.
+    f[:direct_check] = true
+    if f[:checker].end_with?(')')
+      f[:direct_check] = false
+      unless f[:checker].end_with?('()')
+        can_make_template = false
+      end
+    end
+    f[:direct_get] = true
+    if f[:getter].end_with?(')')
+      f[:direct_get] = false
+      unless f[:getter].end_with?('()')
+        can_make_template = false
+      end
+    end
+    fill = ''
+    unless f[:req]
+      lines.push "    if (Value#{info[:sep]}#{f[:checker]}) {"
+      fill = '    '
+    end
+    if prev_req
+      lines.push("#{fill}    c = ',';")
+      lines.push("#{fill}    S.write(&c, 1);")
+    elsif idx > 0
+      lines.push("#{fill}    if (!separated) {")
+      lines.push("#{fill}        c = ',';")
+      lines.push("#{fill}        S.write(&c, 1);")
+      lines.push("#{fill}    }")
+    end
+    lines.push "#{fill}    Write(S, \"#{f[:name]}\", Buffer);"
+    lines.push "#{fill}    c = ':';"
+    lines.push "#{fill}    S.write(&c, 1);"
+    lines.push "#{fill}    Write(S, Value#{info[:sep]}#{f[:getter]}, Buffer);"
+    lines.push "#{fill}    separated = false;" unless idx + 1 == fields.size
+    lines.push('    }') unless f[:req]
+    prev_req = f[:req]
+  end
+  lines.push %Q(    c = '}';
+    S.write(&c, 1);
+}
+)
+  if can_make_template
+    # Optional directly accessed.
+    opt_dir_get = fields.select { |f| not f[:req] and f[:direct_get] }
+    # Optional indirectly accessed.
+    opt_ind_get = fields.select { |f| not f[:req] and not f[:direct_get] }
+    # Optional directly checked where checker != getter.
+    opt_dir_chk = fields.select { |f| not f[:req] and f[:direct_check] and f[:getter] != f[:checker] }
+    # Optional indirectly checked where checker != getter.
+    opt_ind_chk = fields.select { |f| not f[:req] and not f[:direct_check] and f[:getter] != f[:checker] }
+    # Required directly accessed.
+    req_dir = fields.select { |f| f[:req] and f[:direct_get] }
+    # Required indirectly accessed.
+    req_ind = fields.select { |f| f[:req] and not f[:direct_get] }
+    tmpl = [ %Q(
+template<#{(fields.map { |f| "typename #{f[:tn]}" }).join(',')}>
+class #{info[:name]}Template {
+private:
+#{(opt_ind_chk.map { |f| "    bool #{f[:name]}_given;" }).join("\n")}
+#{(opt_ind_get.map { |f| "    typename #{f[:tn]} #{f[:name]}_value;" }).join("\n")}
+#{(req_ind.map { |f| "    typename #{f[:tn]} #{f[:name]}_value;" }).join("\n")}
+
+public:) ]
+    unless opt_ind_chk.empty?
+      tmpl.push "    #{info[:name]}Template() : #{(opt_ind_chk.map { |f| "#{f[:name]}_given(false)" }).join(', ')} { }"
+    end
+    tmpl.push(%Q(
+#{(opt_dir_chk.map { |f| "    bool #{f[:checker]};" }).join("\n")}
+#{(opt_ind_chk.map { |f| "    bool& #{f[:checker]} { return #{f[:name]}_given; }" }).join("\n")}
+#{(opt_ind_chk.map { |f| "    bool #{f[:checker]} const { return #{f[:name]}_given; }" }).join("\n")}
+
+#{(req_dir.map { |f| "    #{f[:tn]} #{f[:getter]};" }).join("\n")}
+#{(req_ind.map { |f| "    #{f[:tn]}& #{f[:getter]} { return #{f[:name]}_value; };" }).join("\n")}
+#{(req_ind.map { |f| "    const #{f[:tn]}& #{f[:getter]} const { return #{f[:name]}_value; }" }).join("\n")}
+#{(opt_ind_get.map { |f| "    #{f[:tn]}& #{f[:getter]} { return #{f[:name]}_value; };" }).join("\n")}
+#{(opt_ind_get.map { |f| "    const #{f[:tn]}& #{f[:getter]} const { return #{f[:name]}_value; }" }).join("\n")}
+};))
+    tmpl = tmpl.join("\n")
+    while not (tmpl.sub!("\n\n\n", "\n\n")).nil?
+    end
+  end
+  return {
+    :name => info[:name],
+    :fwd => fwd + ';',
+    :lines => (can_make_template ? tmpl : '') + lines.join("\n"),
+    :deps => info.fetch(:deps, []).uniq
+  }
+end
+
+def add_named_type(names, values, base)
+  t = "#{base}Values"
+  unless $types.has_key? t
+    $types[t] = t
+    $lines.push(%Q(
+class #{t} {
+public:
+#{(names.map { |n| "    typedef #{values[names.find_index(n)]}::Type #{n}Type;"}).join("\n")}
+    #{base}::Type values;
+
+#{(names.map { |n| "    bool #{n}Given() const { return std::get<#{names.find_index(n)}>(values).Given(); }"}).join("\n")}
+
+#{(names.map { |n| "    #{n}Type& #{n}() { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+#{(names.map { |n| "    const #{n}Type& #{n}() const { return std::get<#{names.find_index(n)}>(values).value; }"}).join("\n")}
+};
+))
+  end
+  return t
+end
+
+def define_output_functions(info)
+  return '' if info.empty?
+  if info.is_a? Array
+    this = info.shift
+    $includes.push(this[:include]) if this.has_key? :include
+    define_output_functions(this)
+    define_output_functions(info)
+  else
+    return if info.fetch(:fields, nil).nil? # Only objects get a function.
+    return unless $types.fetch(info[:name], nil).nil? # Name is unique.
+    $types[info[:name]] = define_function(info)
+  end
+end
+
 parsed.each_pair do |basename, spec|
   $basename = basename
   define_types(spec[:in])
@@ -204,10 +398,31 @@ parsed.each_pair do |basename, spec|
   spec[:in][:includes] = $includes.uniq
   $types = {}
   $lines = []
-  $includes = []
-  # Do output.
-  spec[:out][:lines] = []
-  spec[:out][:includes] = []
+  $includes = [ 'JSONWriters.hpp' ]
+  define_output_functions(spec[:out])
+  ordered = $types.values
+  ordered.sort! do |a, b|
+    anb = a[:deps].include? b[:name]
+    bna = b[:deps].include? a[:name]
+    return -1 if bna and not anb
+    return 1 if anb and not bna
+    # When they need each other, put one with fewer dependencies first.
+    diff = a[:deps].size - b[:deps].size
+    return diff unless diff == 0
+    # Put shorter one first on guess that it represents lowe-level object.
+    return a[:lines].size - b[:lines].size
+  end
+  ordered.each do |d|
+    d[:deps].each do |dep|
+      unless $types[dep][:fwd].nil?
+        $lines.push $types[dep][:fwd]
+        $types[dep][:fwd] = nil
+      end
+    end
+    $lines.push d[:lines]
+  end
+  spec[:out][:lines] = $lines
+  spec[:out][:includes] = $includes.uniq
   $types = {}
   $lines = []
   $includes = []
@@ -230,6 +445,7 @@ parsed.each_pair do |basename, spec|
 #define IOGEN_#{basename.upcase}_IOHPP
 )
   h.puts includes(spec[:in], spec[:out])
+  h.puts ''
   h.puts spec[:in][:lines].join("\n") unless spec[:in][:lines].empty?
   h.puts spec[:out][:lines].join("\n") unless spec[:out][:lines].empty?
   h.puts '#endif'

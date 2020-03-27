@@ -14,6 +14,7 @@ values are output as they are.
 ---
 readimage:
   input:
+    "-typename-": ReadImageIn
     filename:
       description: File name string.
       format: string
@@ -31,10 +32,17 @@ readimage:
       format: float
       required: false
   output:
+    "-typename-": ReadImageOut
     image:
-      description: Height * width * color planes array in [minimum, maximum].
-      format: array
-      required: true
+      description: |
+        Height * width * color planes array in [minimum, maximum].
+        Present only if error is not, and vice versa.
+      format: [ array, array, array, float ]
+      required: false
+    error:
+      description: Error string if reading the image fails.
+      format: string
+      required: false
 ...
 ```
 
@@ -51,7 +59,7 @@ other.
 ---
 writeimage:
   input:
-    "-typename-": WriteImageIO
+    "-typename-": WriteImageIn
     filename:
       description: File name string.
       format: string

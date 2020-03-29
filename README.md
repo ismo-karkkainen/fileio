@@ -39,10 +39,14 @@ readimage:
         Present only if error is not, and vice versa.
       format: [ array, array, array, float ]
       required: false
+      "-checker-": "error.size() == 0"
+      "-getter-": image
     error:
       description: Error string if reading the image fails.
       format: string
       required: false
+      "-checker-": "error.size() != 0"
+      "-getter-": error
 ...
 ```
 

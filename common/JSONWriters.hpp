@@ -132,7 +132,7 @@ void Write(Sink& S, const char* Value, std::vector<char>& Buffer) {
         Write(S, Value, Value + strlen(Value), Buffer);
     else {
         char null[] = "null";
-        S.write(&null, 4);
+        S.write(null, 4);
     }
 }
 

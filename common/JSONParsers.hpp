@@ -36,11 +36,6 @@ protected:
     const char* setFinished(const char* Endptr, ParserPool& Pool);
     const char* setFinished(const char* Endptr);
 
-    const char* skipWhitespace(const char* Begin, const char* End);
-    inline bool isWhitespace(const char C) {
-        return C == ' ' || C == '\x9' || C == '\xA' || C == '\xD';
-    }
-
 public:
     SimpleValueParser() : finished(true) { }
     virtual ~SimpleValueParser();
@@ -50,6 +45,11 @@ public:
     virtual const char* Scan(
         const char* Begin, const char* End, ParserPool& Pool)
         noexcept(false) = 0;
+
+    const char* skipWhitespace(const char* Begin, const char* End);
+    inline bool isWhitespace(const char C) {
+        return C == ' ' || C == '\x9' || C == '\xA' || C == '\xD';
+    }
 };
 
 
@@ -106,6 +106,13 @@ public:
     // Match order with parsers' Pool enum Index values.
     std::tuple<ParseFloat, ParseString, ParseInt> Parser;
     std::tuple<ParseFloat::Type, ParseString::Type, ParseInt::Type> Value;
+
+    inline const char* skipWhitespace(const char* Begin, const char* End) {
+        return std::get<0>(Parser).skipWhitespace(Begin, End);
+    }
+    inline bool isWhitespace(const char C) {
+        return std::get<0>(Parser).isWhitespace(C);
+    }
 };
 
 

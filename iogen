@@ -261,7 +261,11 @@ def define_function(info)
   fields = info[:fields]
   # Forward declaration for the type name used below.
   # Then you can use the generated template (if any) with typedef if needed.
-  lines = [ "\n\nclass #{info[:name]};" ]
+  lines = [
+    "\n\n#if defined(#{info[:name].upcase}_TYPE)",
+    "typedef #{info[:name].upcase}_TYPE #{info[:name]};",
+    '#endif'
+  ]
   fwd = %Q(template<typename Sink>
 void Write(Sink& S, const #{info[:name]}& Value, std::vector<char>& Buffer))
   lines.push %Q(
@@ -314,7 +318,7 @@ void Write(Sink& S, const #{info[:name]}& Value, std::vector<char>& Buffer))
 template<#{(fields.map { |f| "typename #{f[:tn]}" }).join(',')}>
 class #{info[:name]}Template {
 private:
-#{(get_ind.map { |f| "    typename #{f[:tn]} #{f[:name]}_value;" }).join("\n")}
+#{(get_ind.map { |f| "    #{f[:tn]} #{f[:name]}_value;" }).join("\n")}
 
 #{(chk_ind.map { |f| "    bool #{f[:name]}_given;" }).join("\n")}
 
@@ -326,7 +330,7 @@ public:) ]
 #{(chk_ind.map { |f| "    bool& #{f[:checker]} { return #{f[:name]}_given; }" }).join("\n")}
 #{(chk_ind.map { |f| "    bool #{f[:checker]} const { return #{f[:name]}_given; }" }).join("\n")}
 
-#{(get_dir.map { |f| "    typename #{f[:tn]} #{f[:name]};" }).join("\n")}
+#{(get_dir.map { |f| "    #{f[:tn]} #{f[:name]};" }).join("\n")}
 
 #{(get_ind.map { |f| "    #{f[:tn]}& #{f[:getter]} { return #{f[:name]}_value; };" }).join("\n")}
 #{(get_ind.map { |f| "    const #{f[:tn]}& #{f[:getter]} const { return #{f[:name]}_value; }" }).join("\n")}

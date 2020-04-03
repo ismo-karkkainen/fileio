@@ -11,6 +11,7 @@
 #include <iterator>
 #include <cstdint>
 #if !defined(NO_TIFF)
+#include <stdio.h>
 #include <tiffio.h>
 #endif
 
@@ -39,10 +40,30 @@ int read_whole_file(std::vector<std::byte>& Contents, const char* Filename) {
 typedef const char* (*ReadFunc)(const ReadImageInValues::filenameType&, Image&);
 
 #if !defined(NO_TIFF)
+static std::string tiff_error;
+
+static void handle_tiff_error(const char* module, const char* fmt, va_list ap) {
+    std::vector<char> buffer;
+    buffer.resize(256);
+    tiff_error = module;
+    tiff_error += ": ";
+retry:
+    int status = vsnprintf(&buffer.front(), buffer.size(), fmt, ap);
+    if (buffer.size() <= status) {
+        buffer.resize(status + 1);
+        goto retry;
+    }
+    if (status < 0)
+        tiff_error += "Failed to print.";
+    else
+        tiff_error += &buffer.front();
+}
+
 static int read_tiff(
     const ReadImageInValues::filenameType& filename, Image& image)
 {
     TIFFSetWarningHandler(NULL);
+    TIFFSetErrorHandler(&handle_tiff_error);
     TIFF* t = TIFFOpen(filename.c_str(), "r");
     if (t == nullptr)
         return -1;
@@ -62,13 +83,15 @@ static int read_tiff(
         TIFFClose(t);
         return -3;
     }
-    tsize_t line_size = TIFFScanlineSize(t);
-    tdata_t buffer = _TIFFmalloc(line_size);
+    tdata_t buffer = _TIFFmalloc(TIFFScanlineSize(t));
     image.resize(height);
     uint32 row = 0;
     for (auto& line : image) {
         line.resize(width);
-        TIFFReadScanline(t, buffer, row++);
+        if (-1 == TIFFReadScanline(t, buffer, row++)) {
+            _TIFFfree(buffer);
+            return -4;
+        }
         unsigned char* curr = reinterpret_cast<unsigned char*>(buffer);
         for (auto& pixel : line) {
             pixel.resize(samples);
@@ -96,6 +119,7 @@ static const char* readTIFF(
     case -1: return "Failed to open file.";
     case -2: return "Unsupported bit depth.";
     case -3: return "Not contiguous planar configuration.";
+    case -4: return tiff_error.c_str();
     }
     return "Unspecified error.";
 }

@@ -22,7 +22,7 @@ public:
     typedef std::shared_ptr<Block> BlockPtr;
 
 private:
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::deque<BlockPtr> queue;
     BlockPtr available;
     bool ended;
@@ -40,7 +40,10 @@ public:
     BlockPtr Remove();
 
     void End() { ended = true; }
-    bool Ended() const { return ended; }
+    bool Ended() const;
+
+    bool Empty() const;
+    size_t Size() const;
 };
 
 

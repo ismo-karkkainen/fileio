@@ -11,6 +11,7 @@
 #include <iterator>
 #include <cstdint>
 #include <sstream>
+#include <deque>
 #if !defined(NO_TIFF)
 #include <tiffio.h>
 #endif
@@ -19,7 +20,6 @@
 typedef int (*WriteFunc)(const WriteImageInValues::filenameType&, const WriteImageInValues::imageType&, WriteImageInValues::depthType);
 
 #if !defined(NO_TIFF)
-// TIFF
 
 static int writeTIFF(const WriteImageInValues::filenameType& filename,
     const WriteImageInValues::imageType& image,
@@ -96,8 +96,6 @@ static int writeTIFF(const WriteImageInValues::filenameType& filename,
 }
 #endif
 
-// PNG
-
 template<typename T>
 class Buffer : public std::vector<T> {
 public:
@@ -106,6 +104,8 @@ public:
         return *this;
     }
 };
+
+#if !defined(NO_PNG)
 
 static void add_adler32(Buffer<char>& buf, size_t start) {
     uint32_t s1 = 1; // Or use 16-bit values?
@@ -166,7 +166,14 @@ static int writePNG(const WriteImageInValues::filenameType& filename,
         << ((image.size() >> 16) & 0xff)
         << ((image.size() >> 8) & 0xff)
         << (image.size() & 0xff)
-        << (depth & 0xff) << 2 << 0 << 0 << 0;
+        << (depth & 0xff);
+    switch (image[0][0].size()) {
+    case 1: buf << 0; break;
+    case 2: buf << 4; break;
+    case 3: buf << 2; break;
+    case 4: buf << 6; break;
+    }
+    buf << 0 << 0 << 0;
     buf[3] = buf.size() - 8;
     add_crc(buf);
     out.write(&buf.front(), buf.size());
@@ -231,6 +238,8 @@ static int writePNG(const WriteImageInValues::filenameType& filename,
     return 0;
 }
 
+#endif
+
 // PPM, NetPBM color image binary format.
 
 static int writePPM(const WriteImageInValues::filenameType& filename,
@@ -261,124 +270,175 @@ static int writePPM(const WriteImageInValues::filenameType& filename,
     return 0;
 }
 
+// PPM, NetPBM color image text format.
+
+static int writePlainPPM(const WriteImageInValues::filenameType& filename,
+    const WriteImageInValues::imageType& image,
+    WriteImageInValues::depthType depth)
+{
+    std::ofstream out(filename, std::ofstream::out | std::ofstream::trunc);
+    out << "P3\n" << image[0].size() << '\n' << image.size() << '\n'
+        << ((depth == 8) ? "255" : "65535") << '\n';
+    for (auto& line : image)
+        for (auto& pixel : line) {
+            bool first = true;
+            for (auto& component : pixel) {
+                if (!first)
+                    out << ' ';
+                else
+                    first = false;
+                if (depth == 8)
+                    out << static_cast<unsigned char>(round(255 * component));
+                else
+                    out << static_cast<std::uint16_t>(round(65535 * component));
+            }
+            out << '\n';
+        }
+    out.close();
+    return 0;
+}
+
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
     FileDescriptorInput input(f);
-    WriteImageInValues val;
-    try {
-        ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(input, val);
-        if (f)
-            close(f);
-        if (!reader.Finished())
-            return 1;
-    }
-    catch (const ParserException& e) {
-        std::cerr << e.what() << std::endl;
-        return 2;
-    }
-    if (val.image().empty()) {
-        std::cerr << "Image has zero height." << std::endl;
-        return 3;
-    }
-    if (val.image()[0].empty()) {
-        std::cerr << "Image has zero width." << std::endl;
-        return 3;
-    }
-    // Check type presence. If not given, use file name extension.
-    if (!val.formatGiven()) {
-        size_t last = val.filename().find_last_of(".");
-        if (last == std::string::npos) {
-            std::cerr << "No format nor extension in filename." << std::endl;
-            return 4;
+    std::deque<std::shared_ptr<WriteImageInValues>> vals;
+    std::mutex vals_mutex;
+    ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(
+        input, vals, vals_mutex);
+    while (!reader.Finished()) {
+        std::shared_ptr<WriteImageInValues> v;
+        if (!vals.empty()) {
+            std::lock_guard<std::mutex> lock(vals_mutex);
+            v = vals.front();
+            vals.pop_front();
+        } else {
+            reader.Nap();
+            continue;
         }
-        val.format() = val.filename().substr(last + 1);
-    }
-    WriteFunc writer = nullptr;
-    if (strcasecmp(val.format().c_str(), "ppm") == 0) {
-        // PPM-writer.
-        writer = &writePPM;
-        if (8 < val.depth())
-            val.depth() = 16;
-        else if (val.depth() <= 8)
-            val.depth() = 8;
-        if (val.image()[0][0].size() != 3) {
-            std::cerr << "Got " << val.image()[0][0].size() <<
-                " color planes, not 3." << std::endl;
-            return 3;
+        WriteImageInValues& val(*v);
+        if (val.image().empty()) {
+            std::cerr << "Image has zero height.\n";
+            continue;
         }
+        if (val.image()[0].empty()) {
+            std::cerr << "Image has zero width.\n";
+            continue;
+        }
+        if (val.image()[0][0].empty()) {
+            std::cerr << "Image has zero depth.\n";
+            continue;
+        }
+        // Check type presence. If not given, use file name extension.
+        if (!val.formatGiven()) {
+            size_t last = val.filename().find_last_of(".");
+            if (last == std::string::npos) {
+                std::cerr << "No format nor extension in filename.\n";
+                continue;
+            }
+            val.format() = val.filename().substr(last + 1);
+        }
+        WriteFunc writer = nullptr;
+        if (strcasecmp(val.format().c_str(), "ppm") == 0 ||
+            strcasecmp(val.format().c_str(), "p6-ppm") == 0)
+        {
+            // PPM-writer.
+            writer = &writePPM;
+            if (8 < val.depth())
+                val.depth() = 16;
+            else if (val.depth() <= 8)
+                val.depth() = 8;
+            if (val.image()[0][0].size() != 3) {
+                std::cerr << "Got " << val.image()[0][0].size() <<
+                    " color planes, not 3.\n";
+                continue;
+            }
+        } else if (strcasecmp(val.format().c_str(), "p3-ppm") == 0) {
+            // Plain text-format PPM writer.
+            writer = &writePlainPPM;
+            if (8 < val.depth())
+                val.depth() = 16;
+            else if (val.depth() <= 8)
+                val.depth() = 8;
+            if (val.image()[0][0].size() != 3) {
+                std::cerr << "Got " << val.image()[0][0].size() <<
+                    " color planes, not 3.\n";
+                continue;
+            }
 #if !defined(NO_TIFF)
-    } else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
-        strcasecmp(val.format().c_str(), "tif") == 0)
-    {
-        // TIFF-writer.
-        writer = &writeTIFF;
-        if (8 < val.depth())
-            val.depth() = 16;
-        else if (val.depth() <= 8)
-            val.depth() = 8;
-        if (val.image()[0][0].size() == 0) {
-            std::cerr << "Got 0 color planes." << std::endl;
-            return 3;
-        }
+        } else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
+            strcasecmp(val.format().c_str(), "tif") == 0)
+        {
+            // TIFF-writer.
+            writer = &writeTIFF;
+            if (8 < val.depth())
+                val.depth() = 16;
+            else if (val.depth() <= 8)
+                val.depth() = 8;
 #endif
-    } else if (strcasecmp(val.format().c_str(), "png") == 0) {
-        // PNG-writer.
-        writer = &writePNG;
-        if (8 < val.depth())
-            val.depth() = 16;
-        else if (val.depth() <= 8)
-            val.depth() = 8;
-        if (val.image()[0][0].size() != 3) {
-            std::cerr << "Got " << val.image()[0][0].size() <<
-                " color planes, not 3." << std::endl;
-            return 3;
+#if !defined(NO_PNG)
+        } else if (strcasecmp(val.format().c_str(), "png") == 0) {
+            // PNG-writer.
+            writer = &writePNG;
+            if (8 < val.depth())
+                val.depth() = 16;
+            else if (val.depth() <= 8)
+                val.depth() = 8;
+            if (4 < val.image()[0][0].size()) {
+                std::cerr << "Too many color planes: " <<
+                    val.image()[0][0].size() << std::endl;
+                continue;
+            }
+#endif
+        } else {
+            std::cerr << "Unsupported format: " << val.format() << std::endl;
+            continue;
         }
-    } else {
-        std::cerr << "Unsupported format: " << val.format() << std::endl;
-        return 4;
-    }
-    // Find minimum and maximum, if at least one is missing.
-    if (!val.minimumGiven() || !val.maximumGiven())
-        for (auto& line : val.image())
-            for (auto& pixel : line)
-                for (auto& component : pixel) {
-                    if (!val.minimumGiven() && component < val.minimum())
-                        val.minimum() = component;
-                    if (!val.maximumGiven() && val.maximum() < component)
-                        val.maximum() = component;
+        // Find minimum and maximum, if at least one is missing.
+        if (!val.minimumGiven() || !val.maximumGiven())
+            for (auto& line : val.image())
+                for (auto& pixel : line)
+                    for (auto& component : pixel) {
+                        if (!val.minimumGiven() && component < val.minimum())
+                            val.minimum() = component;
+                        if (!val.maximumGiven() && val.maximum() < component)
+                            val.maximum() = component;
+                    }
+        // Limit values using minimum and maximum.
+        float range = val.maximum() - val.minimum();
+        if (range < 0) {
+            std::cerr << "Maximum (" << val.maximum() << ") < minimum ("
+                << val.minimum() << ").\n";
+            continue;
+        }
+        for (auto& line : val.image()) {
+            if (line.size() != val.image()[0].size()) {
+                std::cerr << "Image width not constant, " << line.size() << " != "
+                    << val.image()[0].size() << std::endl;
+                continue;
+            }
+            for (auto& pixel : line) {
+                if (pixel.size() != val.image()[0][0].size()) {
+                    std::cerr << "Color depth not constant, " << pixel.size() <<
+                        " != " << val.image()[0][0].size() << std::endl;
+                    continue;
                 }
-    // Limit values using minimum and maximum.
-    float range = val.maximum() - val.minimum();
-    if (range < 0) {
-        std::cerr << "Maximum (" << val.maximum() << ") < minimum ("
-            << val.minimum() << ")." << std::endl;
-        return 5;
-    }
-    for (auto& line : val.image()) {
-        if (line.size() != val.image()[0].size()) {
-            std::cerr << "Image width not constant, " << line.size() << " != "
-                << val.image()[0].size() << std::endl;
-            return 6;
-        }
-        for (auto& pixel : line) {
-            if (pixel.size() != val.image()[0][0].size()) {
-                std::cerr << "Color depth not constant, " << pixel.size() <<
-                    " != " << val.image()[0][0].size() << std::endl;
-                return 6;
-            }
-            for (auto& component : pixel) {
-                component -= val.minimum();
-                if (component <= 0.0f)
-                    component = 0.0f;
-                else if (range <= component)
-                    component = 1.0f;
-                else
-                    component /= range;
+                for (auto& component : pixel) {
+                    component -= val.minimum();
+                    if (component <= 0.0f)
+                        component = 0.0f;
+                    else if (range <= component)
+                        component = 1.0f;
+                    else
+                        component /= range;
+                }
             }
         }
+        writer(val.filename(), val.image(), val.depth());
     }
-    return writer(val.filename(), val.image(), val.depth());
+    if (f)
+        close(f);
+    return 0;
 }

@@ -14,6 +14,11 @@
 #include <stdio.h>
 #include <tiffio.h>
 #endif
+#if !defined(NO_PNG)
+#include <memory>
+#include <csetjmp>
+#include <png.h>
+#endif
 
 typedef std::vector<std::vector<std::vector<float>>> Image;
 #define READIMAGEOUT_TYPE ReadImageOutTemplate<Image,std::string>
@@ -113,13 +118,189 @@ static const char* readTIFF(
     const ReadImageInValues::filenameType& filename, Image& image)
 {
     int status = read_tiff(filename, image);
-    if (status == 0)
-        return nullptr;
     switch (status) {
+    case 0: return nullptr;
     case -1: return "Failed to open file.";
     case -2: return "Unsupported bit depth.";
     case -3: return "Not contiguous planar configuration.";
     case -4: return tiff_error.c_str();
+    }
+    return "Unspecified error.";
+}
+#endif
+
+#if !defined(NO_LIBPNG)
+static void png_error_handler(png_structp unused, const char* error) {
+    throw error;
+}
+
+static void png_warning_handler(png_structp unused, const char* unused2) { }
+
+typedef void (*png_destroyer)(png_structp);
+static void destroy_png(png_structp p) {
+    png_destroy_read_struct(&p, nullptr, nullptr);
+}
+
+typedef void (*info_destroyer)(png_infop);
+static png_structp png_s = nullptr;
+static void destroy_info(png_infop p) {
+    png_destroy_info_struct(png_s, &p);
+}
+
+static std::string png_error_message;
+
+static void info_relay(png_structp png, png_infop info);
+static void row_relay(png_structp png, png_bytep buffer,
+    png_uint_32 row, int pass);
+static void end_relay(png_structp png, png_infop info);
+
+class ReadPNG {
+private:
+    const ReadImageInValues::filenameType& filename;
+    Image& image;
+    std::vector<std::byte> contents;
+    png_uint_32 width, height;
+    int passes, channels, bytes;
+    std::vector<std::unique_ptr<png_byte>> raw;
+
+    int read() {
+        int status = read_whole_file(contents, filename.c_str());
+        if (status != 0)
+            return status;
+        std::unique_ptr<png_struct,png_destroyer> png(
+            png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr,
+                &png_error_handler, &png_warning_handler),
+            &destroy_png);
+        png_s = png.get();
+        std::unique_ptr<png_info,info_destroyer> info(
+            png_create_info_struct(png.get()), &destroy_info);
+        png_set_progressive_read_fn(
+            png.get(), this, &info_relay, &row_relay, &end_relay);
+        if (setjmp(png_jmpbuf(png.get())))
+            return -4;
+        png_process_data(png.get(), info.get(),
+            reinterpret_cast<png_bytep>(&contents.front()), contents.size());
+        return 0;
+    }
+
+public:
+    ReadPNG(const ReadImageInValues::filenameType& Filename, Image& I)
+        : filename(Filename), image(I),
+        width(0), height(0), passes(1), channels(0), bytes(0) { }
+
+    int Read() {
+        try {
+            return read();
+        }
+        catch (const char* e) {
+            png_error_message = e;
+            return -3;
+        }
+        catch (const int e) {
+            return e;
+        }
+    }
+
+    void info_callback(png_structp png, png_infop info) {
+        int bit_depth, color_type, interlace_type;
+        png_get_IHDR(png, info, &width, &height, &bit_depth, &color_type,
+            &interlace_type, nullptr, nullptr);
+        switch (color_type) {
+        case PNG_COLOR_TYPE_GRAY:
+            channels = 1;
+            if (bit_depth < 8)
+                png_set_expand_gray_1_2_4_to_8(png);
+            if (png_get_valid(png, info, PNG_INFO_tRNS)) {
+                png_set_tRNS_to_alpha(png);
+                channels = 2;
+            }
+            break;
+        case PNG_COLOR_TYPE_GRAY_ALPHA: channels = 2; break;
+        case PNG_COLOR_TYPE_PALETTE:
+            channels = 3;
+            png_set_palette_to_rgb(png);
+            if (png_get_valid(png, info, PNG_INFO_tRNS)) {
+                png_set_tRNS_to_alpha(png);
+                channels = 4;
+            }
+            break;
+        case PNG_COLOR_TYPE_RGB:
+            channels = 3;
+            if (png_get_valid(png, info, PNG_INFO_tRNS)) {
+                png_set_tRNS_to_alpha(png);
+                channels = 4;
+            }
+            break;
+        case PNG_COLOR_TYPE_RGB_ALPHA: channels = 4; break;
+        default:
+            throw -4;
+        }
+        if (interlace_type != PNG_INTERLACE_NONE)
+            passes = png_set_interlace_handling(png);
+        png_read_update_info(png, info);
+        bytes = (8 < bit_depth) ? 2 : 1;
+        for (png_uint_32 k = 0; k < height; k++)
+            raw.push_back(std::unique_ptr<png_byte>(
+                new png_byte[channels * width * bytes]));
+    }
+
+    void row_callback(png_structp png, png_bytep buffer,
+        png_uint_32 row, int pass)
+    {
+        png_progressive_combine_row(png, raw[row].get(), buffer);
+    }
+
+    void end_callback(png_structp png, png_infop info) {
+        image.resize(height);
+        size_t k = 0;
+        for (auto& line : image) {
+            line.resize(width);
+            png_bytep curr = raw[k].get();
+            for (auto& pixel : line) {
+                pixel.resize(channels);
+                for (auto& component : pixel)
+                    if (bytes == 1)
+                        component = float(*curr++);
+                    else {
+                        component = (float(curr[0]) * 256.0f) + float(curr[1]);
+                        curr += 2;
+                    }
+            }
+            raw[k++].reset();
+        }
+    }
+};
+
+static void info_relay(png_structp png, png_infop info) {
+    ReadPNG* p = reinterpret_cast<ReadPNG*>(png_get_progressive_ptr(png));
+    p->info_callback(png, info);
+}
+
+static void row_relay(png_structp png, png_bytep buffer,
+    png_uint_32 row, int pass)
+{
+    ReadPNG* p = reinterpret_cast<ReadPNG*>(png_get_progressive_ptr(png));
+    p->row_callback(png, buffer, row, pass);
+}
+
+static void end_relay(png_structp png, png_infop info) {
+    ReadPNG* p = reinterpret_cast<ReadPNG*>(png_get_progressive_ptr(png));
+    p->end_callback(png, info);
+}
+
+static const char* readPNG(
+    const ReadImageInValues::filenameType& filename, Image& image)
+{
+    ReadPNG reader(filename, image);
+    int status = reader.Read();
+    if (status > 0)
+        return "Failed to read whole file.";
+    switch (status) {
+    case 0: return nullptr;
+    case -1: return "Failed to open file.";
+    case -2: return "Failed to get file size.";
+    case -3: return png_error_message.c_str();
+    case -4: return "Unrecognized color type.";
     }
     return "Unspecified error.";
 }
@@ -137,16 +318,20 @@ static int read_ppm(
     // Read P6 width height maximum
     if (contents.size() < 12)
         return -3;
-    if (contents[0] != static_cast<std::byte>('P') && contents[1] != static_cast<std::byte>('6'))
+    if (contents[0] != static_cast<std::byte>('P'))
+        return -3;
+    bool binary = contents[1] == static_cast<std::byte>('6');
+    if (!binary && contents[1] != static_cast<std::byte>('3'))
         return -3;
     int width, height, maxval;
+    const char* last = reinterpret_cast<const char*>(&contents.back());
+    const char* curr = reinterpret_cast<const char*>(&contents.front() + 2);
     size_t idx;
+    // Comment lines are not supported in the file.
+    ParserPool pp;
+    ParseInt p;
     try {
-        ParserPool pp;
-        ParseInt p;
-        const char* last = reinterpret_cast<const char*>(&contents.back());
-        const char* curr = p.skipWhitespace(
-            reinterpret_cast<const char*>(&contents.front() + 2),
+        curr = p.skipWhitespace(curr,
             reinterpret_cast<const char*>(&contents.back()));
         curr = p.Scan(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
@@ -166,7 +351,7 @@ static int read_ppm(
             return -4;
         ++curr;
         idx = reinterpret_cast<const std::byte*>(++curr) - &contents.front();
-        if (contents.size() - idx + 1 != width * height * ((maxval < 256) ? 3 : 6))
+        if (binary && contents.size() - idx + 1 != width * height * ((maxval < 256) ? 3 : 6))
             return -5;
     }
     catch (const ParserException& e) {
@@ -177,15 +362,24 @@ static int read_ppm(
         line.resize(width);
         for (auto& pixel : line) {
             pixel.resize(3);
-            for (auto& component : pixel) {
-                if (maxval < 256) {
-                    component = float(contents[idx]);
-                    ++idx;
+            for (auto& component : pixel)
+                if (binary) {
+                    if (maxval < 256) {
+                        component = float(contents[idx]);
+                        ++idx;
+                    } else {
+                        component = float(contents[idx]) * 256 + float(contents[idx + 1]);
+                        idx += 2;
+                    }
                 } else {
-                    component = float(contents[idx]) * 256 + float(contents[idx + 1]);
-                    idx += 2;
+                    curr = p.skipWhitespace(curr, last);
+                    if (curr == nullptr)
+                        return -4;
+                    curr = p.Scan(curr, last, pp);
+                    if (curr == nullptr)
+                        return -4;
+                    component = std::get<ParserPool::Int>(pp.Value);
                 }
-            }
         }
     }
     return 0;
@@ -197,9 +391,8 @@ static const char* readPPM(
     int status = read_ppm(filename, image);
     if (status > 0)
         return "Failed to read whole file.";
-    if (status == 0)
-        return nullptr;
     switch (status) {
+    case 0: return nullptr;
     case -1: return "Failed to open file.";
     case -2: return "Failed to get file size.";
     case -3: return "Not PPM.";
@@ -288,8 +481,10 @@ int main(int argc, char** argv) {
             strcasecmp(val.format().c_str(), "tif") == 0)
                 reader = &readTIFF;
 #endif
-        //else if (strcasecmp(val.format().c_str(), "png") == 0)
-            //reader = &readPNG;
+#if !defined(NO_LIBPNG)
+        else if (strcasecmp(val.format().c_str(), "png") == 0)
+            reader = &readPNG;
+#endif
         else {
             out.error = "Unsupported format: " + val.format();
             report(out);

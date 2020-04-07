@@ -14,18 +14,24 @@
 #include "InputChannel.hpp"
 #include <thread>
 #include <ctime>
+#include <deque>
+#include <mutex>
+#include <memory>
+#include <iostream>
 
 
-// Reads exactly one input and parses it. Has copied output if Finished().
 template<typename Parser, typename Values>
 class ThreadedReadParse {
 private:
     BlockQueue read;
     InputChannel& input;
     std::thread* worker;
+    std::thread* parseworker;
+    std::deque<std::shared_ptr<Values>>& queue;
+    std::mutex& mutex;
     bool finished;
 
-    void nap() {
+    void nap() const {
         struct timespec ts;
         ts.tv_sec = 0;
         ts.tv_nsec = 20000000;
@@ -39,6 +45,10 @@ private:
     void reader() {
         BlockQueue::BlockPtr buffer;
         while (!input.Ended() && !finished) {
+            if (16 * 1024 * 1024 < read.Size() * block_size()) {
+                nap(); // Parsing can not keep up so pause reading.
+                continue;
+            }
             if (!buffer)
                 buffer.reset(new BlockQueue::Block());
             if (buffer->size() != block_size() + 1)
@@ -55,41 +65,75 @@ private:
         read.End();
     }
 
+    void parser() {
+        ParserPool pp;
+        Parser p;
+        BlockQueue::BlockPtr block(read.Remove());
+        const char* end = nullptr;
+        while (!finished) {
+            if (end == nullptr) {
+                block = read.Remove(block);
+                if (!block) {
+                    if (read.Ended())
+                        break;
+                    nap();
+                    continue;
+                }
+                end = &block->front();
+            }
+            if (p.Finished()) {
+                end = pp.skipWhitespace(end, &block->back());
+                if (end == nullptr)
+                    continue;
+            }
+            try {
+                end = p.Scan(end, &block->back(), pp);
+            }
+            catch (const ParserException& e) {
+                std::cerr << e.what() << std::endl;
+                finished = true;
+                continue;
+            }
+            if (!p.Finished()) {
+                end = nullptr;
+                continue;
+            }
+            std::shared_ptr<Values> v(new Values());
+            p.Swap(v->values);
+            std::lock_guard<std::mutex> lock(mutex);
+            queue.push_back(v);
+        }
+        while (read.Remove()); // Clear unused read blocks, if any.
+        finished = true;
+    }
+
+    void finish() {
+        finished = true;
+        worker->join();
+        delete worker;
+        worker = nullptr;
+        parseworker->join();
+        delete parseworker;
+        parseworker = nullptr;
+    }
+
 public:
-    ThreadedReadParse(InputChannel& In, Values& V)
-        : input(In), worker(nullptr), finished(false)
+    ThreadedReadParse(InputChannel& In,
+        std::deque<std::shared_ptr<Values>>& Q, std::mutex& M)
+        : input(In), worker(nullptr), queue(Q), mutex(M), finished(false)
     {
         worker = new std::thread(
             &ThreadedReadParse<Parser,Values>::reader, this);
         std::this_thread::yield();
-        ParserPool pp;
-        Parser p;
-        BlockQueue::BlockPtr block(read.Remove());
-        while (true) {
-            if (!block) {
-                nap();
-                block = read.Remove();
-                if (!block && read.Ended())
-                    break;
-                continue;
-            }
-            p.Scan(&block->front(), &block->back(), pp);
-            block = read.Remove(block);
-            if (!block && read.Ended())
-                break; // There will be no more data.
-            if (p.Finished())
-                break;
-        }
-        finished = p.Finished();
-        if (finished)
-            p.Swap(V.values);
-        while (read.Remove()); // Clear unused read blocks, if any.
-        worker->join();
-        delete worker;
-        worker = nullptr;
+        parseworker = new std::thread(
+            &ThreadedReadParse<Parser,Values>::parser, this);
     }
 
+    ~ThreadedReadParse() { finish(); }
+
     bool Finished() const { return finished; }
+
+    void Nap() const { nap(); }
 };
 
 

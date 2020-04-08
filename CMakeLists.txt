@@ -21,10 +21,6 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ProfilerOptions -pg)
     set(ProfilerLinkOptions -pg)
     set(CxxStd -std=c++17)
-#elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Intel")
-#  # using Intel C++
-#elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-#  # using Visual Studio C++
 else()
     set(BuildOptions "")
 endif()

@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+
+require 'json'
+
+begin
+  obj = JSON.parse(STDIN.read)
+rescue JSON::ParserError
+  STDERR.puts "Error parsing input."
+  exit 2
+end
+
+unless obj.has_key? 'image'
+  STDERR.puts 'No field named "image".'
+  exit 3
+end
+
+out = { 'image' => obj['image'] }
+STDOUT.puts out.to_json

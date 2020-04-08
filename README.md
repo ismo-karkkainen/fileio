@@ -10,6 +10,9 @@ outputs as JSON array to standard output. The optional minimum and maximum
 result in shift and/or scaling of the values in output. If not given, the
 values are output as they are.
 
+Supported formats are PPM (P6-PPM), P3-PPM (text), TIFF (via libtiff), PNG
+(via libpng).
+
 ```
 ---
 readimage:
@@ -59,6 +62,9 @@ input image. That range is scaled and shifted to cover the output format
 precision. Useful to keep several images in same range with respect to each
 other.
 
+Supported formats are (P6-)PPM, P3-PPM, TIFF (via libtiff) and PNG. PNG files
+are not compressed.
+
 ```
 ---
 writeimage:
@@ -69,9 +75,7 @@ writeimage:
       format: string
       required: true
     format:
-      description: |
-        File format, determined from file name if not given.
-        Supported formats are TIFF and PNG.
+      description: File format, determined from file name if not given.
       format: string
       required: false
     image:
@@ -115,6 +119,7 @@ directory parallel to the imageio directory, you can use:
 
 TIFF support depends on whether TIFF library is found. You can disable TIFF
 support by setting NO_TIFF to any value, for example: NO_TIFF=1 cmake ...
+To disable PNG support, set NO_PNG=1 when running cmake.
 
 To specify the compiler, set for example:
 

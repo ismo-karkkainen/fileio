@@ -308,7 +308,7 @@ int main(int argc, char** argv) {
     std::mutex vals_mutex;
     ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(
         input, vals, vals_mutex);
-    while (!reader.Finished()) {
+    do {
         std::shared_ptr<WriteImageInValues> v;
         if (!vals.empty()) {
             std::lock_guard<std::mutex> lock(vals_mutex);
@@ -437,7 +437,7 @@ int main(int argc, char** argv) {
             }
         }
         writer(val.filename(), val.image(), val.depth());
-    }
+    } while (!reader.Finished());
     if (f)
         close(f);
     return 0;

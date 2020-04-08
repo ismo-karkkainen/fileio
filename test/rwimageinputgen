@@ -13,20 +13,23 @@ $COMPONENTS = 3
 $DEPTH = 8
 $OUTPUT = nil
 $FORMAT = nil
-ENV['POSIXLY_CORRECT'] = '1'
+$READ = 'readimage.json'
+$WRITE = 'writeimage.json'
 parser = OptionParser.new do |opts|
   opts.summary_indent = '  '
-  opts.summary_width = 26
-  opts.banner = "Usage: inputgen [options]"
+  opts.summary_width = 30
+  opts.banner = "Usage: rwimageinputgen [options]"
   opts.separator ""
   opts.separator "Options:"
-  opts.on('-i', '--input SPEC') { |f| $IN = f }
-  opts.on('-w', '--width WIDTH') { |w| $WIDTH = Integer(w) }
-  opts.on('-h', '--height HEIGHT') { |h| $HEIGHT = Integer(h) }
-  opts.on('-c', '--components COMPONENTS') { |c| $COMPONENTS = Integer(c) }
-  opts.on('-d', '--depth DEPTH') { |d| $DEPTH = Integer(d) }
-  opts.on('-f', '--filename OUTPUT') { |f| $OUTPUT = f }
-  opts.on('--format FORMAT') { |f| $FORMAT = f }
+  opts.on('-i', '--input SPEC', 'Specification file name.') { |f| $IN = f }
+  opts.on('-w', '--width WIDTH', 'Image width.') { |w| $WIDTH = Integer(w) }
+  opts.on('-h', '--height HEIGHT', 'Image height.') { |h| $HEIGHT = Integer(h) }
+  opts.on('-c', '--components COMPONENTS', 'Color component count.') { |c| $COMPONENTS = Integer(c) }
+  opts.on('-d', '--depth DEPTH', 'Color component bit depth.') { |d| $DEPTH = Integer(d) }
+  opts.on('-f', '--filename OUTPUT', 'Image file name.') { |f| $OUTPUT = f }
+  opts.on('--format FORMAT', 'Image format.') { |f| $FORMAT = f }
+  opts.on('--read OUTFILE', 'readimage input file name.') { |f| $READ = f }
+  opts.on('--write OUTFILE', 'writeimage input file name.') { |f| $WRITE = f }
   opts.on('--help', 'Print this help and exit.') do
     STDOUT.puts opts
     exit 0
@@ -80,13 +83,22 @@ specs = JSON.parse(input.gets(nil))
 
 out = {}
 specs.each_pair do |basename, spec|
-  next if basename != 'writeimage'
-  out[basename] = { 'filename' => $OUTPUT, 'depth' => $DEPTH }
-  out[basename]['format'] = $FORMAT unless $FORMAT.nil?
-  out[basename]['image'] = gen_image($WIDTH, $HEIGHT, $COMPONENTS)
+  if basename == 'writeimage'
+    out[basename] = { 'filename' => $OUTPUT, 'depth' => $DEPTH }
+    out[basename]['format'] = $FORMAT unless $FORMAT.nil?
+    out[basename]['image'] = gen_image($WIDTH, $HEIGHT, $COMPONENTS)
+  elsif basename == 'readimage'
+    out[basename] = { 'filename' => $OUTPUT, 'minimum' => 0, 'maximum' => 1 }
+    out[basename]['format'] = $FORMAT unless $FORMAT.nil?
+  end
 end
 
 out.each_pair do |basename, output|
-  f = file("#{basename}.json", nil, 'w')
+  case basename
+  when 'readimage' then fn = $READ
+  when 'writeimage' then fn = $WRITE
+  end
+  f = file(fn, nil, 'w')
   f.puts(JSON.generate(output))
+  f.close()
 end

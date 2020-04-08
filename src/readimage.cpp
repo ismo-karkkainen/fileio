@@ -82,22 +82,23 @@ static int read_tiff(
     TIFFGetField(t, TIFFTAG_SAMPLESPERPIXEL, &samples);
     TIFFGetField(t, TIFFTAG_IMAGEWIDTH, &width);
     TIFFGetField(t, TIFFTAG_IMAGELENGTH, &height);
-    uint32 config;
-    TIFFGetField(t, TIFFTAG_PLANARCONFIG, &config);
-    if (config != PLANARCONFIG_CONTIG) {
-        TIFFClose(t);
-        return -3;
+    if (samples != 1) {
+        uint16 config;
+        TIFFGetField(t, TIFFTAG_PLANARCONFIG, &config);
+        if (config != PLANARCONFIG_CONTIG) {
+            TIFFClose(t);
+            return -3;
+        }
     }
-    tdata_t buffer = _TIFFmalloc(TIFFScanlineSize(t));
+    std::unique_ptr<void,void (*)(void*)> buffer(
+        _TIFFmalloc(TIFFScanlineSize(t)), &_TIFFfree);
     image.resize(height);
     uint32 row = 0;
     for (auto& line : image) {
         line.resize(width);
-        if (-1 == TIFFReadScanline(t, buffer, row++)) {
-            _TIFFfree(buffer);
+        if (-1 == TIFFReadScanline(t, buffer.get(), row++))
             return -4;
-        }
-        unsigned char* curr = reinterpret_cast<unsigned char*>(buffer);
+        unsigned char* curr = reinterpret_cast<unsigned char*>(buffer.get());
         for (auto& pixel : line) {
             pixel.resize(samples);
             for (auto& component : pixel)
@@ -109,7 +110,6 @@ static int read_tiff(
                 }
         }
     }
-    _TIFFfree(buffer);
     TIFFClose(t);
     return 0;
 }

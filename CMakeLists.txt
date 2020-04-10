@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(imageio CXX)
 
+#### Parameter set-up and library support detection.
+
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     if ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
         set(BuildOptions -Wall -O2)
@@ -29,21 +31,6 @@ if (UNIX AND NOT APPLE)
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
 endif()
-
-enable_testing()
-
-set(Sources common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp common/JSONWriters.cpp)
-
-add_executable(unittest common/unittest.cpp ${Sources})
-target_include_directories(unittest SYSTEM PRIVATE /usr/local/include)
-target_include_directories(unittest PRIVATE common)
-target_compile_definitions(unittest PRIVATE TESTDOC_UNITTEST)
-target_compile_options(unittest PRIVATE ${CxxStd})
-target_compile_options(unittest PRIVATE ${BuildOptions})
-if (UNIX AND NOT APPLE)
-    target_link_libraries(unittest PRIVATE Threads::Threads)
-endif()
-add_test(NAME UnitTest COMMAND unittest)
 
 if (NOT DEFINED ENV{NO_TIFF})
     find_package(TIFF)
@@ -83,7 +70,11 @@ function(setup_png TGTNAME)
 endfunction()
 
 
+#### Main programs
+
 set(Programs readimage writeimage)
+
+set(Sources common/BlockQueue.cpp common/InputChannel.cpp common/FileDescriptorInput.cpp common/JSONParsers.cpp common/JSONWriters.cpp)
 
 list(TRANSFORM Programs APPEND "_io.hpp" OUTPUT_VARIABLE ParserHpp)
 add_custom_target(parsers COMMENT "Generating types from README.md"
@@ -113,7 +104,59 @@ setup_main_program(writeimage src/writeimage.cpp)
 install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 
 
-# Programs for profiling the code.
+#### Tests
+
+enable_testing()
+
+add_executable(unittest common/unittest.cpp ${Sources})
+target_include_directories(unittest SYSTEM PRIVATE /usr/local/include)
+target_include_directories(unittest PRIVATE common)
+target_compile_definitions(unittest PRIVATE TESTDOC_UNITTEST)
+target_compile_options(unittest PRIVATE ${CxxStd})
+target_compile_options(unittest PRIVATE ${BuildOptions})
+if (UNIX AND NOT APPLE)
+    target_link_libraries(unittest PRIVATE Threads::Threads)
+endif()
+add_test(NAME UnitTest COMMAND unittest)
+
+function(add_test_prog PROG)
+    add_executable(${PROG} IMPORTED)
+    set_property(TARGET ${PROG} PROPERTY IMPORTED_LOCATION ${CMAKE_CURRENT_LIST_DIR}/test/${PROG})
+endfunction()
+
+function(new_test TEST_NAME PROG WIDTH HEIGHT PLANES BITS FORMAT)
+    add_test(NAME ${TEST_NAME} COMMAND ${PROG} ${WIDTH} ${HEIGHT} ${PLANES} ${BITS} ${FORMAT} $<TARGET_FILE:readimage> $<TARGET_FILE:writeimage>)
+    set_property(TEST ${TEST_NAME} PROPERTY ENVIRONMENT "PATH=${CMAKE_CURRENT_LIST_DIR}:${CMAKE_CURRENT_LIST_DIR}/test:$ENV{PATH}")
+endfunction()
+
+add_test_prog(rwimage.sh)
+new_test(p3ppm8 rwimage.sh 255 134 3 8 P3-ppm)
+new_test(p3ppm16 rwimage.sh 317 251 3 16 P3-PPM)
+new_test(ppm8 rwimage.sh 76 32 3 8 PPM)
+new_test(ppm16 rwimage.sh 316 577 3 16 P6-PPM)
+if (TIFF_FOUND)
+    new_test(tiff1.8 rwimage.sh 271 98 1 8 tif)
+    new_test(tiff2.8 rwimage.sh 421 312 2 8 tIf)
+    new_test(tiff3.8 rwimage.sh 142 83 3 8 TIf)
+    new_test(tiff3.16 rwimage.sh 98 66 3 16 TiFF)
+    new_test(tiff4.8 rwimage.sh 256 256 4 8 TiF)
+    new_test(tiff4.16 rwimage.sh 512 512 4 16 TiFf)
+    new_test(tiff5.8 rwimage.sh 185 412 5 8 TiF)
+    new_test(tiff5.16 rwimage.sh 73 92 5 16 TiFf)
+endif()
+if (PNG_FOUND)
+    new_test(png1.8 rwimage.sh 271 98 1 8 PNG)
+    new_test(png1.16 rwimage.sh 185 192 1 16 png)
+    new_test(png2.8 rwimage.sh 421 312 2 8 Png)
+    new_test(png2.16 rwimage.sh 171 326 2 16 pNG)
+    new_test(png3.8 rwimage.sh 142 83 3 8 PnG)
+    new_test(png3.16 rwimage.sh 98 66 3 16 pNg)
+    new_test(png4.8 rwimage.sh 256 256 4 8 PNg)
+    new_test(png4.16 rwimage.sh 512 512 4 16 pnG)
+endif()
+
+
+#### Programs for profiling the code.
 
 set(Profilers readfloatarray readfloatarray2 readstringarray readintarray)
 add_custom_target(profile COMMENT "Building programs to be run with profiler")

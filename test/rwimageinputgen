@@ -71,7 +71,7 @@ def gen_image(width, height, components)
       img.last.last.push((w % 16 == 0) ? 1 : (h % 16 == 0) ? 1 : 0) if components > 2
       next unless components > 3
       (3...components).each do |c|
-        img.last.last.push(0.5 + ((w * h) % c) / (0.5 * (c - 1)))
+        img.last.last.push(0.5 + 0.5 * ((w * h) % c) / (c - 1))
       end
     end
   end
@@ -98,7 +98,7 @@ out.each_pair do |basename, output|
   when 'readimage' then fn = $READ
   when 'writeimage' then fn = $WRITE
   end
-  f = file(fn, nil, 'w')
+  f = file(fn, nil, 'wt')
   f.puts(JSON.generate(output))
   f.close()
 end

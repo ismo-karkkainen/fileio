@@ -47,8 +47,7 @@ BlockQueue::BlockPtr BlockQueue::Remove() {
 bool BlockQueue::Ended() const {
     if (!ended)
         return false;
-    std::lock_guard<std::mutex> lock(mutex);
-    return queue.empty();
+    return Empty();
 }
 
 bool BlockQueue::Empty() const {

@@ -1,0 +1,82 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'json'
+
+$REF = nil
+$TEST = nil
+$DEPTH = nil
+$VERBOSE = false
+
+parser = OptionParser.new do |opts|
+  opts.summary_indent = '  '
+  opts.summary_width = 26
+  opts.banner = "Usage: pixeldiff [options]"
+  opts.separator ""
+  opts.separator "Options:"
+  opts.on('-r', '--reference FILENAME', 'Original file name.') { |f| $REF = f }
+  opts.on('-t', '--test FILENAME', 'Processed file name.') { |f| $TEST = f }
+  opts.on('-d', '--depth DEPTH', 'Color component bit depth') { |d| $DEPTH = Integer(d) }
+  opts.on('-v', '--verbose', 'Print maximum difference and limit.') { $VERBOSE = true }
+  opts.on('-h', '--help', 'Print this help and exit.') do
+    STDOUT.puts opts
+    exit 0
+  end
+end
+parser.parse!
+
+if $REF.nil? or $TEST.nil? or $DEPTH.nil?
+  STDERR.puts "All of --reference, --test and --depth must be given."
+  exit 1
+end
+
+begin
+  f = File.open($REF, 'r')
+  ref = JSON.parse(f.read)
+  f.close()
+  f = File.open($TEST, 'r')
+  test = JSON.parse(f.read)
+  f.close()
+rescue StandardError
+  STDERR.puts 'Error reading/parsing input files.'
+  exit 2
+end
+
+unless ref.has_key?('image') and test.has_key?('image')
+  STDERR.puts 'Both files are expected to have key "image".'
+  exit 3
+end
+
+r = ref['image']
+t = test['image']
+
+unless r.size() == t.size()
+  STDERR.puts "Height mismatch, #{r.size()} != #{t.size()}"
+  exit 4
+end
+
+limit = 1.0 / (1 << $DEPTH)
+maxdiff = 0
+r.each_index do |h|
+  unless r[h].size() == t[h].size()
+    STDERR.puts "Row #{h} width mismatch, #{r[h].size()} != #{t[h].size()}"
+    exit 4
+  end
+  r[h].each_index do |w|
+    unless r[h][w].size() == t[h][w].size()
+      STDERR.puts "Pixel #{h},#{w} count mismatch, #{r[h][w].size()} != #{t[h][w].size()}"
+      exit 4
+    end
+    r[h][w].each_index do |k|
+      diff = (r[h][w][k] - t[h][w][k]).abs
+      unless diff < limit
+        STDERR.puts "Difference at #{h},#{w},#{k} limit #{limit} < #{diff}"
+        exit 5
+      end
+      if maxdiff < diff
+        maxdiff = diff
+      end
+    end
+  end
+end
+puts("#{maxdiff} < #{limit}") if $VERBOSE

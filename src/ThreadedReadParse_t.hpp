@@ -29,7 +29,8 @@ private:
     std::thread* parseworker;
     std::deque<std::shared_ptr<Values>>& queue;
     std::mutex& mutex;
-    bool finished;
+    std::condition_variable& output_waiter;
+    volatile bool finished;
 
     void nap() const {
         struct timespec ts;
@@ -100,11 +101,14 @@ private:
             }
             std::shared_ptr<Values> v(new Values());
             p.Swap(v->values);
-            std::lock_guard<std::mutex> lock(mutex);
+            std::unique_lock<std::mutex> lock(mutex);
             queue.push_back(v);
+            lock.unlock();
+            output_waiter.notify_one();
         }
         while (read.Remove()); // Clear unused read blocks, if any.
         finished = true;
+        output_waiter.notify_one();
     }
 
     void finish() {
@@ -118,13 +122,13 @@ private:
     }
 
 public:
-    ThreadedReadParse(InputChannel& In,
-        std::deque<std::shared_ptr<Values>>& Q, std::mutex& M)
-        : input(In), worker(nullptr), queue(Q), mutex(M), finished(false)
+    ThreadedReadParse(InputChannel& In, std::deque<std::shared_ptr<Values>>& Q,
+        std::mutex& M, std::condition_variable& OutputWaiter)
+        : input(In), worker(nullptr), queue(Q), mutex(M),
+        output_waiter(OutputWaiter), finished(false)
     {
         worker = new std::thread(
             &ThreadedReadParse<Parser,Values>::reader, this);
-        std::this_thread::yield();
         parseworker = new std::thread(
             &ThreadedReadParse<Parser,Values>::parser, this);
     }

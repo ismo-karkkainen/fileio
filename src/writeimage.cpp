@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <vector>
 #include <cmath>
+#include <limits>
 #include <fstream>
 #include <cstddef>
 #include <iterator>
@@ -25,6 +26,8 @@ static int writeTIFF(const WriteImageInValues::filenameType& filename,
     const WriteImageInValues::imageType& image,
     WriteImageInValues::depthType depth)
 {
+    if (image[0][0].size() < 3 && depth != 8)
+        depth = 8;
     TIFF* t = TIFFOpen(filename.c_str(), "w");
     if (!t) {
         std::cerr << "Failed to open output file: " << filename << std::endl;
@@ -63,28 +66,24 @@ static int writeTIFF(const WriteImageInValues::filenameType& filename,
         }
     }
     uint32 count = 0;
-    std::vector<unsigned char> d8;
-    d8.reserve(image[0].size() * image[0][0].size());
-    std::vector<unsigned short> d16;
-    d16.reserve(image[0].size() * image[0][0].size());
+    std::vector<unsigned char> buf;
+    buf.reserve(image[0].size() * image[0][0].size() * ((8 < depth) ? 2 : 1));
     for (auto& line : image) {
-        tdata_t data = nullptr;
-        if (depth == 8) {
-            d8.resize(0);
-            for (auto& pixel : line)
-                for (auto& component : pixel)
-                    d8.push_back(
-                        static_cast<unsigned char>(round(255 * component)));
-            data = static_cast<tdata_t>(&d8.front());
-        } else if (depth == 16) {
-            d16.resize(0);
-            for (auto& pixel : line)
-                for (auto& component : pixel)
-                    d16.push_back(
-                        static_cast<unsigned short>(round(65535 * component)));
-            data = static_cast<tdata_t>(&d16.front());
-        }
-        if (TIFFWriteScanline(t, data, count++, 0) != 1) {
+        buf.resize(0);
+        for (auto& pixel : line)
+            for (auto& component : pixel)
+                if (depth == 8)
+                    buf.push_back(
+                        static_cast<unsigned char>(trunc(256.0f * component)));
+                else {
+                    std::uint16_t val =
+                        static_cast<std::uint16_t>(trunc(65536.0f * component));
+                    buf.push_back((val >> 8) & 0xFF);
+                    buf.push_back(val & 0xFF);
+                }
+
+        if (TIFFWriteScanline(t, static_cast<tdata_t>(&buf.front()), count++, 0) != 1)
+        {
             TIFFClose(t);
             std::cerr << "Error writing to output: " << filename << std::endl;
             unlink(filename.c_str());
@@ -184,11 +183,11 @@ static int writePNG(const WriteImageInValues::filenameType& filename,
         for (auto& pixel : line)
             for (auto& component : pixel)
                 if (depth == 8)
-                    filtered << static_cast<char>(static_cast<unsigned char>(
-                        round(255 * component)));
+                    filtered << static_cast<char>(
+                        static_cast<unsigned char>(trunc(256.0f * component)));
                 else {
-                    std::uint16_t val = static_cast<std::uint16_t>(
-                        round(65535 * component));
+                    std::uint16_t val =
+                        static_cast<std::uint16_t>(trunc(65536.0f * component));
                     filtered << static_cast<char>((val >> 8) & 0xff)
                         << static_cast<char>(val & 0xff);
                 }
@@ -258,10 +257,10 @@ static int writePPM(const WriteImageInValues::filenameType& filename,
             for (auto& component : pixel)
                 if (depth == 8)
                     buf << static_cast<char>(static_cast<unsigned char>(
-                        round(255 * component)));
+                        trunc(256.0f * component)));
                 else {
                     std::uint16_t val = static_cast<std::uint16_t>(
-                        round(65535 * component));
+                        trunc(65536.0f * component));
                     buf << static_cast<char>((val >> 8) & 0xff)
                         << static_cast<char>(val & 0xff);
                 }
@@ -279,6 +278,7 @@ static int writePlainPPM(const WriteImageInValues::filenameType& filename,
     std::ofstream out(filename, std::ofstream::out | std::ofstream::trunc);
     out << "P3\n" << image[0].size() << '\n' << image.size() << '\n'
         << ((depth == 8) ? "255" : "65535") << '\n';
+    float mult = (depth == 8) ? 256.0f : 65536.0f;
     for (auto& line : image)
         for (auto& pixel : line) {
             bool first = true;
@@ -287,10 +287,7 @@ static int writePlainPPM(const WriteImageInValues::filenameType& filename,
                     out << ' ';
                 else
                     first = false;
-                if (depth == 8)
-                    out << static_cast<unsigned char>(round(255 * component));
-                else
-                    out << static_cast<std::uint16_t>(round(65535 * component));
+                out << trunc(mult * component);
             }
             out << '\n';
         }
@@ -306,18 +303,20 @@ int main(int argc, char** argv) {
     FileDescriptorInput input(f);
     std::deque<std::shared_ptr<WriteImageInValues>> vals;
     std::mutex vals_mutex;
+    std::condition_variable output_added;
     ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(
-        input, vals, vals_mutex);
-    do {
-        std::shared_ptr<WriteImageInValues> v;
-        if (!vals.empty()) {
-            std::lock_guard<std::mutex> lock(vals_mutex);
-            v = vals.front();
-            vals.pop_front();
-        } else {
-            reader.Nap();
-            continue;
+        input, vals, vals_mutex, output_added);
+    std::unique_lock<std::mutex> output_lock(vals_mutex, std::defer_lock);
+    while (!reader.Finished() || !vals.empty()) {
+        output_lock.lock();
+        if (vals.empty()) {
+            output_added.wait(output_lock);
+            output_lock.unlock();
+            continue; // If woken because quitting, loop condition breaks.
         }
+        std::shared_ptr<WriteImageInValues> v(vals.front());
+        vals.pop_front();
+        output_lock.unlock();
         WriteImageInValues& val(*v);
         if (val.image().empty()) {
             std::cerr << "Image has zero height.\n";
@@ -397,7 +396,11 @@ int main(int argc, char** argv) {
             continue;
         }
         // Find minimum and maximum, if at least one is missing.
-        if (!val.minimumGiven() || !val.maximumGiven())
+        if (!val.minimumGiven() || !val.maximumGiven()) {
+            if (!val.minimumGiven())
+                val.minimum() = val.image()[0][0][0];
+            if (!val.maximumGiven())
+                val.maximum() = val.image()[0][0][0];
             for (auto& line : val.image())
                 for (auto& pixel : line)
                     for (auto& component : pixel) {
@@ -406,6 +409,7 @@ int main(int argc, char** argv) {
                         if (!val.maximumGiven() && val.maximum() < component)
                             val.maximum() = component;
                     }
+        }
         // Limit values using minimum and maximum.
         float range = val.maximum() - val.minimum();
         if (range < 0) {
@@ -413,6 +417,8 @@ int main(int argc, char** argv) {
                 << val.minimum() << ").\n";
             continue;
         }
+        // Shift and scale values to [0, 1[ range.
+        float maxval = 1.0f - std::numeric_limits<float>::epsilon();
         for (auto& line : val.image()) {
             if (line.size() != val.image()[0].size()) {
                 std::cerr << "Image width not constant, " << line.size() << " != "
@@ -421,8 +427,8 @@ int main(int argc, char** argv) {
             }
             for (auto& pixel : line) {
                 if (pixel.size() != val.image()[0][0].size()) {
-                    std::cerr << "Color depth not constant, " << pixel.size() <<
-                        " != " << val.image()[0][0].size() << std::endl;
+                    std::cerr << "Color component count not constant, " <<
+                        pixel.size() << " != " << val.image()[0][0].size() << "\n";
                     continue;
                 }
                 for (auto& component : pixel) {
@@ -430,14 +436,17 @@ int main(int argc, char** argv) {
                     if (component <= 0.0f)
                         component = 0.0f;
                     else if (range <= component)
-                        component = 1.0f;
-                    else
+                        component = maxval;
+                    else {
                         component /= range;
+                        if (maxval < component)
+                            component = maxval;
+                    }
                 }
             }
         }
         writer(val.filename(), val.image(), val.depth());
-    } while (!reader.Finished());
+    }
     if (f)
         close(f);
     return 0;

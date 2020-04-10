@@ -323,6 +323,8 @@ static int read_ppm(
     bool binary = contents[1] == static_cast<std::byte>('6');
     if (!binary && contents[1] != static_cast<std::byte>('3'))
         return -3;
+    if (!binary)
+        contents.push_back(std::byte(0));
     int width, height, maxval;
     const char* last = reinterpret_cast<const char*>(&contents.back());
     const char* curr = reinterpret_cast<const char*>(&contents.front() + 2);
@@ -331,8 +333,7 @@ static int read_ppm(
     ParserPool pp;
     ParseInt p;
     try {
-        curr = p.skipWhitespace(curr,
-            reinterpret_cast<const char*>(&contents.back()));
+        curr = p.skipWhitespace(curr, last);
         curr = p.Scan(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
@@ -349,10 +350,12 @@ static int read_ppm(
         maxval = std::get<ParserPool::Int>(pp.Value);
         if (width <= 0 || height <= 0 || maxval <= 0 || 65535 < maxval)
             return -4;
-        ++curr;
-        idx = reinterpret_cast<const std::byte*>(++curr) - &contents.front();
-        if (binary && contents.size() - idx + 1 != width * height * ((maxval < 256) ? 3 : 6))
-            return -5;
+        if (binary) {
+            curr++; // Skip whitespace.
+            idx = reinterpret_cast<const std::byte*>(curr) - &contents.front();
+            if (contents.size() - idx != width * height * ((maxval < 256) ? 3 : 6))
+                return -5;
+        }
     }
     catch (const ParserException& e) {
         return -4;
@@ -374,10 +377,10 @@ static int read_ppm(
                 } else {
                     curr = p.skipWhitespace(curr, last);
                     if (curr == nullptr)
-                        return -4;
+                        return -6;
                     curr = p.Scan(curr, last, pp);
                     if (curr == nullptr)
-                        return -4;
+                        return -7;
                     component = std::get<ParserPool::Int>(pp.Value);
                 }
         }
@@ -398,6 +401,8 @@ static const char* readPPM(
     case -3: return "Not PPM.";
     case -4: return "Invalid header.";
     case -5: return "File and header size mismatch.";
+    case -6: return "No whitespace when expected.";
+    case -7: return "No number when expected.";
     }
     return "Unspecified error.";
 }
@@ -474,8 +479,10 @@ int main(int argc, char** argv) {
             }
         } else if (val.maximumGiven())
             shift = val.maximum();
-        if (strcasecmp(val.format().c_str(), "ppm") == 0)
-            reader = &readPPM;
+        if (strcasecmp(val.format().c_str(), "ppm") == 0 ||
+            strcasecmp(val.format().c_str(), "p6-ppm") == 0 ||
+            strcasecmp(val.format().c_str(), "p3-ppm") == 0)
+                reader = &readPPM;
 #if !defined(NO_TIFF)
         else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
             strcasecmp(val.format().c_str(), "tif") == 0)

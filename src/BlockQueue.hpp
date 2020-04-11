@@ -23,23 +23,25 @@ public:
 
 private:
     mutable std::mutex mutex;
+    std::condition_variable waiter;
     std::deque<BlockPtr> queue;
     BlockPtr available;
     bool ended;
 
-    BlockPtr dequeue(); // Not locked, Remove helper.
+    BlockPtr dequeue(std::unique_lock<std::mutex>& lock, bool wait);
 
 public:
     BlockQueue() : ended(false) { }
+    ~BlockQueue();
     BlockQueue(const BlockQueue&) = delete;
     BlockQueue& operator=(const BlockQueue&) = delete;
 
     BlockPtr Add(BlockPtr& Filled); // Returns new/recycled block to fill.
-    // Return nullptrs if nothing present.
-    BlockPtr Remove(BlockPtr& Emptied);
-    BlockPtr Remove();
+    // These return nullptrs if nothing present.
+    BlockPtr Remove(BlockPtr& Emptied, bool WaitForBlock = false);
+    BlockPtr Remove(bool WaitForBlock = false);
 
-    void End() { ended = true; }
+    void End();
     bool Ended() const;
 
     bool Empty() const;

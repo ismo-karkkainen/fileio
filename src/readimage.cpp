@@ -503,6 +503,7 @@ int main(int argc, char** argv) {
             report(out);
             continue;
         }
+        // Data is positive integers at this point.
         float minval, maxval;
         minval = maxval = out.image[0][0][0];
         for (auto& line : out.image)
@@ -513,11 +514,15 @@ int main(int argc, char** argv) {
                     if (maxval < component)
                         maxval = component;
                 }
+        maxval += 1;
+        // The 0.25 is to ensure that if values were truncated (writeimage)
+        // then the number is not at the edge of the range, which, if written
+        // and read repeatedly, risks moving values towards zero. If rounding
+        // is used, then original integer is at the middle but 0.25 still keeps
+        // the number from changing to a higher value (0.5 would cause that).
         if (val.minimumGiven() || val.maximumGiven())
-            shift += -minval;
-        if (minval == maxval)
-            scale = 1.0f;
-        else if (val.minimumGiven() && val.maximumGiven())
+            shift += 0.25f - minval;
+        if (val.minimumGiven() && val.maximumGiven())
             scale /= (maxval - minval);
         for (auto& line : out.image)
             for (auto& pixel : line)

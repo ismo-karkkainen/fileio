@@ -69,17 +69,13 @@ private:
     void parser() {
         ParserPool pp;
         Parser p;
-        BlockQueue::BlockPtr block(read.Remove());
+        BlockQueue::BlockPtr block;
         const char* end = nullptr;
         while (!finished) {
             if (end == nullptr) {
-                block = read.Remove(block);
-                if (!block) {
-                    if (read.Ended())
-                        break;
-                    nap();
-                    continue;
-                }
+                block = read.Remove(block, true);
+                if (!block)
+                    break;
                 end = &block->front();
             }
             if (p.Finished()) {
@@ -106,9 +102,9 @@ private:
             lock.unlock();
             output_waiter.notify_one();
         }
-        while (read.Remove()); // Clear unused read blocks, if any.
         finished = true;
-        output_waiter.notify_one();
+        output_waiter.notify_all();
+        while (read.Remove()); // Clear unused read blocks, if any.
     }
 
     void finish() {

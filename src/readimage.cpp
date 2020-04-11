@@ -129,7 +129,7 @@ static const char* readTIFF(
 }
 #endif
 
-#if !defined(NO_LIBPNG)
+#if !defined(NO_PNG)
 static void png_error_handler(png_structp unused, const char* error) {
     throw error;
 }
@@ -488,7 +488,7 @@ int main(int argc, char** argv) {
             strcasecmp(val.format().c_str(), "tif") == 0)
                 reader = &readTIFF;
 #endif
-#if !defined(NO_LIBPNG)
+#if !defined(NO_PNG)
         else if (strcasecmp(val.format().c_str(), "png") == 0)
             reader = &readPNG;
 #endif

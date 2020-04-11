@@ -6,16 +6,20 @@
 #include <unistd.h>
 #include <vector>
 #include <cmath>
-#include <limits>
 #include <fstream>
 #include <cstddef>
-#include <iterator>
 #include <cstdint>
 #include <sstream>
 #include <deque>
 #if !defined(NO_TIFF)
 #include <tiffio.h>
 #endif
+#if !defined(NO_PNG)
+#include <memory>
+#include <csetjmp>
+#include <png.h>
+#endif
+
 
 
 typedef int (*WriteFunc)(const WriteImageInValues::filenameType&, const WriteImageInValues::imageType&, WriteImageInValues::depthType);
@@ -109,127 +113,120 @@ public:
 };
 
 #if !defined(NO_PNG)
-
-static void add_adler32(Buffer<char>& buf, size_t start) {
-    uint32_t s1 = 1; // Or use 16-bit values?
-    uint32_t s2 = 0;
-    for (; start < buf.size(); ++start) {
-        s1 = (s1 + buf[start]) % 65521;
-        s2 = (s2 + s1) % 65521;
-    }
-    buf << ((s2 >> 8) & 0xff) << (s2 & 0xff)
-        << ((s1 >> 8) & 0xff) << (s1 & 0xff);
+static void png_error_handler(png_structp unused, const char* error) {
+    throw error;
 }
 
-// https://www.w3.org/TR/PNG/#D-CRCAppendix
-static std::uint32_t crc_table[256];
-static void make_crc_table() {
-    for (std::uint32_t n = 0; n < 256; ++n) {
-        std::uint32_t c = n;
-        for (int k = 0; k < 8; ++k)
-            c = (c & 1) ? 0xedb88320L ^ (c >> 1) : c >> 1;
-        crc_table[n] = c;
+static void png_warning_handler(png_structp unused, const char* unused2) { }
+
+static const char* png_filename;
+static void clear_file(FILE* file) {
+    if (file != nullptr) {
+        fclose(file);
+        if (png_filename)
+            unlink(png_filename);
     }
 }
 
-static void add_crc(Buffer<char>& buf) {
-    unsigned char* b = reinterpret_cast<unsigned char*>((&buf.front()) + 4);
-    unsigned char* e = b + buf.size() - 4;
-    std::uint32_t c = 0xffFFffFFL;
-    for (; b != e; ++b)
-        c = crc_table[(c ^ *b) & 0xff] ^ (c >> 8);
-    c = c ^ 0xffFFffFFL;
-    buf.write_u32(c);
+typedef void (*png_destroyer)(png_structp);
+static void destroy_png(png_structp p) {
+    png_destroy_write_struct(&p, nullptr);
+}
+
+typedef void (*info_destroyer)(png_infop);
+static png_structp png_s = nullptr;
+static void destroy_info(png_infop p) {
+    png_destroy_info_struct(png_s, &p);
+}
+
+static std::string png_error_message;
+
+
+static int write_png(const char* filename,
+    const WriteImageInValues::imageType& image,
+    WriteImageInValues::depthType depth)
+{
+    png_filename = filename;
+    std::unique_ptr<FILE,void (*)(FILE*)> file(
+        fopen(filename, "wb"), &clear_file);
+    if (!file)
+        return 1;
+    std::unique_ptr<png_struct,png_destroyer> png(
+        png_create_write_struct(PNG_LIBPNG_VER_STRING,
+            nullptr, &png_error_handler, &png_warning_handler),
+        &destroy_png);
+    if (!png)
+        return 3;
+    png_s = png.get();
+    std::unique_ptr<png_info,info_destroyer> info(
+        png_create_info_struct(png.get()), &destroy_info);
+    if (!info)
+        return 3;
+    if (setjmp(png_jmpbuf(png.get())))
+        return 2;
+    png_init_io(png.get(), file.get());
+    int color_type;
+    switch (image[0][0].size()) {
+    case 1: color_type = PNG_COLOR_TYPE_GRAY; break;
+    case 2: color_type = PNG_COLOR_TYPE_GRAY_ALPHA; break;
+    case 3: color_type = PNG_COLOR_TYPE_RGB; break;
+    case 4: color_type = PNG_COLOR_TYPE_RGB_ALPHA; break;
+    }
+    png_set_IHDR(png.get(), info.get(), image[0].size(), image.size(), depth,
+        color_type, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_BASE,
+        PNG_FILTER_TYPE_BASE);
+    png_write_info(png.get(), info.get());
+    std::vector<png_bytep> row_pointers;
+    row_pointers.reserve(image.size());
+    const size_t row_size = image[0].size() * image[0][0].size() * (depth / 8);
+    Buffer<char> buf;
+    buf.reserve(image.size() * row_size);
+    for (auto& line : image) {
+        for (auto& pixel : line)
+            for (auto& component : pixel)
+                if (depth == 8)
+                    buf << static_cast<char>(
+                        static_cast<unsigned char>(component));
+                else {
+                    std::uint16_t val = static_cast<std::uint16_t>(component);
+                    buf << static_cast<char>((val >> 8) & 0xff)
+                        << static_cast<char>(val & 0xff);
+                }
+        if (!row_pointers.empty())
+            row_pointers.push_back(row_pointers.back() + row_size);
+        else
+            row_pointers.push_back(reinterpret_cast<png_bytep>(&buf.front()));
+    }
+    png_write_image(png.get(), &row_pointers.front());
+    png_write_end(png.get(), info.get());
+    png_filename = nullptr;
+    return 0;
 }
 
 static int writePNG(const WriteImageInValues::filenameType& filename,
     const WriteImageInValues::imageType& image,
     WriteImageInValues::depthType depth)
 {
-    // https://stackoverflow.com/questions/7942635/write-png-quickly
-    make_crc_table();
-    std::ofstream out;
-    out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
-    out.open(filename,
-        std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
-    // https://www.w3.org/TR/PNG/#11Chunks
-    // Signature.
-    unsigned char sig[] = { 137, 80, 78, 71, 13, 10, 26, 10 };
-    out.write(reinterpret_cast<char*>(sig), 8);
-    Buffer<char> buf;
-    // IHDR
-    buf << 0 << 0 << 0 << 0
-        << 73 << 72 << 68 << 82;
-    buf.write_u32(image[0].size()).write_u32(image.size())
-        << (depth & 0xff);
-    switch (image[0][0].size()) {
-    case 1: buf << 0; break;
-    case 2: buf << 4; break;
-    case 3: buf << 2; break;
-    case 4: buf << 6; break;
-    }
-    buf << 0 << 0 << 0;
-    buf[3] = buf.size() - 8;
-    add_crc(buf);
-    out.write(&buf.front(), buf.size());
-    // All lines, 0 for filter per line, then pixels.
-    decltype(buf) filtered;
-    for (auto& line : image) {
-        filtered << 0; // No filtering.
-        for (auto& pixel : line)
-            for (auto& component : pixel)
-                if (depth == 8)
-                    filtered << static_cast<char>(
-                        static_cast<unsigned char>(component));
-                else {
-                    std::uint16_t val = static_cast<std::uint16_t>(component);
-                    filtered << static_cast<char>((val >> 8) & 0xff)
-                        << static_cast<char>(val & 0xff);
-                }
-    }
-    buf.resize(0);
-    size_t header = 0;
-    size_t sz = 0;
-    for (size_t k = 0; k < filtered.size(); ++k) {
-        if (buf.size() == 0) {
-            buf << 0 << 0 << 0 << 0;
-            buf << 73 << 68 << 65 << 84;
-            if (k == 0) {
-                buf << 8; // No compression.
-                buf << 0x1d;
-            }
-            size_t remain = filtered.size() - k;
-            if (remain < 65536) {
-                // Size and its complement are least-significant byte first.
-                buf << 1 << (remain & 0xff) << ((remain >> 8) & 0xff);
-                buf << ~buf[buf.size() - 2] << ~buf[buf.size() - 2];
-                sz = remain;
-            } else {
-                buf << 0 << 0xff << 0xff << 0 << 0;
-                sz = 65535;
-            }
-            header = buf.size();
-            sz += header;
-        }
-        buf << filtered[k];
-        if (buf.size() == sz) {
-            if (buf[header - 5])
-                add_adler32(buf, header - 5);
-            buf[0] = ((buf.size() - 8) >> 24) & 0xff;
-            buf[1] = ((buf.size() - 8) >> 16) & 0xff;
-            buf[2] = ((buf.size() - 8) >> 8) & 0xff;
-            buf[3] = (buf.size() - 8) & 0xff;
-            add_crc(buf);
-            out.write(&buf.front(), buf.size());
-            buf.resize(0);
+    try {
+        switch (write_png(filename.c_str(), image, depth)) {
+        case 0: return 0;
+        case 1:
+            std::cerr << "Failed to open: " << filename << "\n";
+            return 1;
+        case 2:
+            std::cerr << "Failed to write to file: " << filename << "\n";
+            return 2;
+        case 3:
+            std::cerr << "Internal error.\n";
+            return 3;
         }
     }
-    buf << 0 << 0 << 0 << 0;
-    buf << 73 << 69 << 78 << 68;
-    add_crc(buf);
-    out.write(&buf.front(), buf.size());
-    out.close();
-    return 0;
+    catch (const char* e) {
+        std::cerr << e << "\n";
+        return 3;
+    }
+    std::cerr << "Unspecified error.\n";
+    return 4;
 }
 
 #endif
@@ -246,7 +243,7 @@ static int writePPM(const WriteImageInValues::filenameType& filename,
         std::ofstream::out | std::ofstream::binary | std::ofstream::trunc);
     std::stringstream header;
     header << "P6\n" << image[0].size() << '\n' << image.size() << '\n'
-        << ((depth == 8) ? "255" : "65535") << '\n';
+        << ((1 << depth) - 1) << '\n';
     out << header.str();
     Buffer<char> buf;
     for (auto& line : image)
@@ -387,8 +384,6 @@ static void write_image(WriteImageInValues& val) {
             << val.minimum() << ").\n";
         return;
     }
-    // Shift and scale values to [0, 1[ range.
-    float maxval = 1.0f - std::numeric_limits<float>::epsilon();
     for (auto& line : val.image()) {
         if (line.size() != val.image()[0].size()) {
             std::cerr << "Image width not constant, " << line.size() << " != "
@@ -406,11 +401,11 @@ static void write_image(WriteImageInValues& val) {
                 if (component <= 0.0f)
                     component = 0.0f;
                 else if (range <= component)
-                    component = maxval;
+                    component = 1.0f;
                 else {
                     component /= range;
-                    if (maxval < component)
-                        component = maxval;
+                    if (1.0f < component)
+                        component = 1.0f;
                 }
             }
         }
@@ -423,8 +418,11 @@ static void write_image(WriteImageInValues& val) {
     float max = 1 << val.depth();
     for (auto& line : val.image())
         for (auto& pixel : line)
-            for (auto& component : pixel)
+            for (auto& component : pixel) {
                 component = trunc(component * max);
+                if (component == max)
+                    component = max - 1;
+            }
     try {
         writer(val.filename(), val.image(), val.depth());
     }

@@ -14,6 +14,9 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#if defined(__GNUG__)
+#include <condition_variable>
+#endif
 
 
 class BlockQueue {

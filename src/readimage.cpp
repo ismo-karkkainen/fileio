@@ -54,7 +54,7 @@ static void handle_tiff_error(const char* module, const char* fmt, va_list ap) {
     tiff_error += ": ";
 retry:
     int status = vsnprintf(&buffer.front(), buffer.size(), fmt, ap);
-    if (buffer.size() <= status) {
+    if (static_cast<int>(buffer.size()) <= status) {
         buffer.resize(status + 1);
         goto retry;
     }
@@ -328,7 +328,7 @@ static int read_ppm(
     int width, height, maxval;
     const char* last = reinterpret_cast<const char*>(&contents.back());
     const char* curr = reinterpret_cast<const char*>(&contents.front() + 2);
-    size_t idx;
+    size_t idx = 0;
     // Comment lines are not supported in the file.
     ParserPool pp;
     ParseInt p;
@@ -353,7 +353,7 @@ static int read_ppm(
         if (binary) {
             curr++; // Skip whitespace.
             idx = reinterpret_cast<const std::byte*>(curr) - &contents.front();
-            if (contents.size() - idx != width * height * ((maxval < 256) ? 3 : 6))
+            if (static_cast<int>(contents.size() - idx) != width * height * ((maxval < 256) ? 3 : 6))
                 return -5;
         }
     }

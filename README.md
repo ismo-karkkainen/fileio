@@ -104,6 +104,7 @@ writeimage:
 For unit tests, you need https://github.com/onqtam/doctest to compile the
 sources. Even if you do not need to run the tests, you still need it for
 definitions on the test macros that are located around the source code.
+It is included as <doctest/doctest.h>.
 
 Personally I installed doctest/doctest.h under /usr/local/include but wherever
 the include directive in common/testdoc.h finds the file is ok.

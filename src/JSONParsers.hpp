@@ -520,9 +520,9 @@ private:
     State state;
 
     void setActivating(const std::string& Incoming) {
-        for (int k = 0; k < parsers.size(); ++k)
+        for (size_t k = 0; k < parsers.size(); ++k)
             if (strcmp(Incoming.c_str(), parsers.KeyValue(k)->Key()) == 0) {
-                activating = k;
+                activating = static_cast<int>(k);
                 return;
             }
         throw InvalidKey;

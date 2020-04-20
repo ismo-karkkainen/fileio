@@ -1,5 +1,5 @@
 //
-// JSONwriters.hpp
+// JSONWriters.hpp
 //
 // Copyright © 2020 Ismo Kärkkäinen. All rights reserved.
 //
@@ -16,7 +16,11 @@
 #include <ctype.h>
 #include <cstring>
 #include <cstdio>
+#if !defined(__GNUG__)
 #include <cmath>
+#else
+#include <math.h>
+#endif
 
 
 class WriterException : public std::exception {
@@ -35,7 +39,7 @@ void Write(Sink& S, double Value, std::vector<char>& Buffer) {
     if (isfinite(Value)) {
         int count = snprintf(&Buffer.front(), Buffer.size(),
             "%.*g", std::numeric_limits<double>::digits10, Value);
-        if (count < Buffer.size())
+        if (count < static_cast<int>(Buffer.size()))
             S.write(&Buffer.front(), count);
         else {
             Buffer.resize(count + 1);
@@ -50,7 +54,7 @@ void Write(Sink& S, float Value, std::vector<char>& Buffer) {
     if (isfinite(Value)) {
         int count = snprintf(&Buffer.front(), Buffer.size(),
             "%.*g", std::numeric_limits<float>::digits10, double(Value));
-        if (count < Buffer.size())
+        if (count < static_cast<int>(Buffer.size()))
             S.write(&Buffer.front(), count);
         else {
             Buffer.resize(count + 1);
@@ -63,7 +67,7 @@ void Write(Sink& S, float Value, std::vector<char>& Buffer) {
 template<typename Sink>
 void Write(Sink& S, int Value, std::vector<char>& Buffer) {
     int count = snprintf(&Buffer.front(), Buffer.size(), "%i", Value);
-    if (count < Buffer.size())
+    if (count < static_cast<int>(Buffer.size()))
         S.write(&Buffer.front(), count);
     else {
         Buffer.resize(count + 1);

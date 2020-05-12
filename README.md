@@ -15,8 +15,9 @@ Supported formats are PPM (P6-PPM), P3-PPM (text), TIFF (via libtiff), PNG
 ```
 ---
 readimage_io:
-  standalone: true
   namespace: readio
+  requires:
+  - Int
   types:
     ReadImageIn:
       filename:
@@ -73,7 +74,6 @@ Compression is not used.
 ```
 ---
 writeimage_io:
-  standalone: true
   namespace: writeio
   types:
     WriteImageIn:

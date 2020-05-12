@@ -83,11 +83,11 @@ specs = JSON.parse(input.gets(nil))
 
 out = {}
 specs.each_pair do |basename, spec|
-  if basename == 'writeimage'
+  if basename == 'writeimage_io'
     out[basename] = { 'filename' => $OUTPUT, 'depth' => $DEPTH }
     out[basename]['format'] = $FORMAT unless $FORMAT.nil?
     out[basename]['image'] = gen_image($WIDTH, $HEIGHT, $COMPONENTS)
-  elsif basename == 'readimage'
+  elsif basename == 'readimage_io'
     out[basename] = { 'filename' => $OUTPUT, 'minimum' => 0, 'maximum' => 1 }
     out[basename]['format'] = $FORMAT unless $FORMAT.nil?
   end
@@ -95,8 +95,8 @@ end
 
 out.each_pair do |basename, output|
   case basename
-  when 'readimage' then fn = $READ
-  when 'writeimage' then fn = $WRITE
+  when 'readimage_io' then fn = $READ
+  when 'writeimage_io' then fn = $WRITE
   end
   f = file(fn, nil, 'wt')
   f.puts(JSON.generate(output))

@@ -1,4 +1,5 @@
 #include "writeimage_io.hpp"
+using namespace writeio;
 #include "FileDescriptorInput.hpp"
 #include "ThreadedReadParse_t.hpp"
 #include <iostream>
@@ -21,14 +22,12 @@
 #endif
 
 
-
-typedef int (*WriteFunc)(const WriteImageInValues::filenameType&, const WriteImageInValues::imageType&, WriteImageInValues::depthType);
+typedef int (*WriteFunc)(const WriteImageIn::filenameType&, const WriteImageIn::imageType&, WriteImageIn::depthType);
 
 #if !defined(NO_TIFF)
 
-static int writeTIFF(const WriteImageInValues::filenameType& filename,
-    const WriteImageInValues::imageType& image,
-    WriteImageInValues::depthType depth)
+static int writeTIFF(const WriteImageIn::filenameType& filename,
+    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
 {
     TIFF* t = TIFFOpen(filename.c_str(), "w");
     if (!t) {
@@ -142,9 +141,8 @@ static void destroy_info(png_infop p) {
 static std::string png_error_message;
 
 
-static int write_png(const char* filename,
-    const WriteImageInValues::imageType& image,
-    WriteImageInValues::depthType depth)
+static int write_png(const char* filename, const WriteImageIn::imageType& image,
+    WriteImageIn::depthType depth)
 {
     png_filename = filename;
     std::unique_ptr<FILE,void (*)(FILE*)> file(
@@ -203,9 +201,8 @@ static int write_png(const char* filename,
     return 0;
 }
 
-static int writePNG(const WriteImageInValues::filenameType& filename,
-    const WriteImageInValues::imageType& image,
-    WriteImageInValues::depthType depth)
+static int writePNG(const WriteImageIn::filenameType& filename,
+    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
 {
     try {
         switch (write_png(filename.c_str(), image, depth)) {
@@ -233,9 +230,8 @@ static int writePNG(const WriteImageInValues::filenameType& filename,
 
 // PPM, NetPBM color image binary format.
 
-static int writePPM(const WriteImageInValues::filenameType& filename,
-    const WriteImageInValues::imageType& image,
-    WriteImageInValues::depthType depth)
+static int writePPM(const WriteImageIn::filenameType& filename,
+    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
 {
     std::ofstream out;
     out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
@@ -264,9 +260,8 @@ static int writePPM(const WriteImageInValues::filenameType& filename,
 
 // PPM, NetPBM color image text format.
 
-static int writePlainPPM(const WriteImageInValues::filenameType& filename,
-    const WriteImageInValues::imageType& image,
-    WriteImageInValues::depthType depth)
+static int writePlainPPM(const WriteImageIn::filenameType& filename,
+    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
 {
     std::ofstream out;
     out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
@@ -280,7 +275,7 @@ static int writePlainPPM(const WriteImageInValues::filenameType& filename,
     return 0;
 }
 
-static void write_image(WriteImageInValues& val) {
+static void write_image(WriteImageIn& val) {
     if (val.image().empty()) {
         std::cerr << "Image has zero height.\n";
         return;
@@ -437,10 +432,10 @@ int main(int argc, char** argv) {
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
     FileDescriptorInput input(f);
-    std::deque<std::shared_ptr<WriteImageInValues>> vals;
+    std::deque<std::shared_ptr<WriteImageIn>> vals;
     std::mutex vals_mutex;
     std::condition_variable output_added;
-    ThreadedReadParse<WriteImageIn, WriteImageInValues> reader(
+    ThreadedReadParse<WriteImageIn_Parser, WriteImageIn> reader(
         input, vals, vals_mutex, output_added);
     while (!reader.Finished() || !vals.empty()) {
         std::unique_lock<std::mutex> output_lock(vals_mutex);
@@ -449,7 +444,7 @@ int main(int argc, char** argv) {
             output_lock.unlock();
             continue; // If woken because quitting, loop condition breaks.
         }
-        std::shared_ptr<WriteImageInValues> v(vals.front());
+        std::shared_ptr<WriteImageIn> v(vals.front());
         vals.pop_front();
         output_lock.unlock();
         write_image(*v);

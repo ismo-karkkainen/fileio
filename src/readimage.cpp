@@ -21,9 +21,11 @@
 #endif
 
 typedef std::vector<std::vector<std::vector<float>>> Image;
-#define READIMAGEOUT_TYPE ReadImageOutTemplate<Image,std::string>
+#define READIO_READIMAGEOUT_TYPE ReadImageOut_Template<Image,std::string>
 
 #include "readimage_io.hpp"
+
+using namespace readio;
 
 
 int read_whole_file(std::vector<std::byte>& Contents, const char* Filename) {
@@ -42,7 +44,7 @@ int read_whole_file(std::vector<std::byte>& Contents, const char* Filename) {
 }
 
 
-typedef const char* (*ReadFunc)(const ReadImageInValues::filenameType&, Image&);
+typedef const char* (*ReadFunc)(const ReadImageIn::filenameType&, Image&);
 
 #if !defined(NO_TIFF)
 static std::string tiff_error;
@@ -64,9 +66,7 @@ retry:
         tiff_error += &buffer.front();
 }
 
-static int read_tiff(
-    const ReadImageInValues::filenameType& filename, Image& image)
-{
+static int read_tiff(const ReadImageIn::filenameType& filename, Image& image) {
     TIFFSetWarningHandler(NULL);
     TIFFSetErrorHandler(&handle_tiff_error);
     TIFF* t = TIFFOpen(filename.c_str(), "r");
@@ -115,7 +115,7 @@ static int read_tiff(
 }
 
 static const char* readTIFF(
-    const ReadImageInValues::filenameType& filename, Image& image)
+    const ReadImageIn::filenameType& filename, Image& image)
 {
     int status = read_tiff(filename, image);
     switch (status) {
@@ -156,7 +156,7 @@ static void end_relay(png_structp png, png_infop info);
 
 class ReadPNG {
 private:
-    const ReadImageInValues::filenameType& filename;
+    const ReadImageIn::filenameType& filename;
     Image& image;
     std::vector<std::byte> contents;
     png_uint_32 width, height;
@@ -184,7 +184,7 @@ private:
     }
 
 public:
-    ReadPNG(const ReadImageInValues::filenameType& Filename, Image& I)
+    ReadPNG(const ReadImageIn::filenameType& Filename, Image& I)
         : filename(Filename), image(I),
         width(0), height(0), passes(1), channels(0), bytes(0) { }
 
@@ -289,7 +289,7 @@ static void end_relay(png_structp png, png_infop info) {
 }
 
 static const char* readPNG(
-    const ReadImageInValues::filenameType& filename, Image& image)
+    const ReadImageIn::filenameType& filename, Image& image)
 {
     ReadPNG reader(filename, image);
     int status = reader.Read();
@@ -308,9 +308,7 @@ static const char* readPNG(
 
 // PPM, NetPBM color image binary format.
 
-static int read_ppm(
-    const ReadImageInValues::filenameType& filename, Image& image)
-{
+static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
     std::vector<std::byte> contents;
     int status = read_whole_file(contents, filename.c_str());
     if (status != 0)
@@ -334,17 +332,17 @@ static int read_ppm(
     ParseInt p;
     try {
         curr = p.skipWhitespace(curr, last);
-        curr = p.Scan(curr, last, pp);
+        curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
         width = std::get<ParserPool::Int>(pp.Value);
         curr = p.skipWhitespace(curr, last);
-        curr = p.Scan(curr, last, pp);
+        curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
         height = std::get<ParserPool::Int>(pp.Value);
         curr = p.skipWhitespace(curr, last);
-        curr = p.Scan(curr, last, pp);
+        curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
         maxval = std::get<ParserPool::Int>(pp.Value);
@@ -357,7 +355,7 @@ static int read_ppm(
                 return -5;
         }
     }
-    catch (const ParserException& e) {
+    catch (const Exception& e) {
         return -4;
     }
     image.resize(height);
@@ -378,7 +376,7 @@ static int read_ppm(
                     curr = p.skipWhitespace(curr, last);
                     if (curr == nullptr)
                         return -6;
-                    curr = p.Scan(curr, last, pp);
+                    curr = p.Parse(curr, last, pp);
                     if (curr == nullptr)
                         return -7;
                     component = std::get<ParserPool::Int>(pp.Value);
@@ -389,7 +387,7 @@ static int read_ppm(
 }
 
 static const char* readPPM(
-    const ReadImageInValues::filenameType& filename, Image& image)
+    const ReadImageIn::filenameType& filename, Image& image)
 {
     int status = read_ppm(filename, image);
     if (status > 0)
@@ -421,7 +419,7 @@ int main(int argc, char** argv) {
     FileDescriptorInput input(f);
     BlockQueue::BlockPtr buffer;
     ParserPool pp;
-    ReadImageIn parser;
+    ReadImageIn_Parser parser;
     const char* end = nullptr;
     while (!input.Ended()) {
         if (end == nullptr) {
@@ -442,9 +440,9 @@ int main(int argc, char** argv) {
                 continue;
         }
         try {
-            end = parser.Scan(end, &buffer->back(), pp);
+            end = parser.Parse(end, &buffer->back(), pp);
         }
-        catch (const ParserException& e) {
+        catch (const Exception& e) {
             std::cerr << e.what() << std::endl;
             return 1;
         }
@@ -452,7 +450,7 @@ int main(int argc, char** argv) {
             end = nullptr;
             continue;
         }
-        ReadImageInValues val;
+        ReadImageIn val;
         parser.Swap(val.values);
         ReadImageOut out;
         if (!val.formatGiven()) {

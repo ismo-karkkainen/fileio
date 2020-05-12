@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.10)
 project(imageio CXX)
 
 #### Parameter set-up and library support detection.
@@ -71,17 +71,16 @@ endfunction()
 
 set(Programs readimage writeimage)
 
-set(Sources src/BlockQueue.cpp src/InputChannel.cpp src/FileDescriptorInput.cpp src/JSONParsers.cpp src/JSONWriters.cpp)
+set(Sources src/BlockQueue.cpp src/InputChannel.cpp src/FileDescriptorInput.cpp)
 
-list(TRANSFORM Programs APPEND "_io.hpp" OUTPUT_VARIABLE ParserHpp)
 add_custom_target(parsers COMMENT "Generating types from README.md"
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/README.md
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs ${Programs}
-    COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i pspecs
-    BYPRODUCTS ${ParserHpp})
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io
+    COMMAND specificjson --input pspecs
+    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp)
 
 function(setup_main_program TGTNAME MAIN)
-    add_executable(${TGTNAME} ${MAIN} ${Sources})
+    add_executable(${TGTNAME} ${MAIN} ${Sources} ${CMAKE_CURRENT_BINARY_DIR}/${TGTNAME}_io.cpp)
     add_dependencies(${TGTNAME} parsers)
     target_include_directories(${TGTNAME} SYSTEM PRIVATE /usr/local/include)
     target_include_directories(${TGTNAME} PRIVATE src)
@@ -104,17 +103,6 @@ install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 #### Tests
 
 enable_testing()
-
-add_executable(unittest src/unittest.cpp ${Sources})
-target_include_directories(unittest SYSTEM PRIVATE /usr/local/include)
-target_include_directories(unittest PRIVATE src)
-target_compile_definitions(unittest PRIVATE TESTDOC_UNITTEST)
-target_compile_options(unittest PRIVATE ${CxxStd})
-target_compile_options(unittest PRIVATE ${BuildOptions})
-if (UNIX AND NOT APPLE)
-    target_link_libraries(unittest PRIVATE Threads::Threads)
-endif()
-add_test(NAME UnitTest COMMAND unittest)
 
 function(add_test_prog PROG)
     add_executable(${PROG} IMPORTED)
@@ -153,37 +141,3 @@ if (PNG_FOUND)
     new_test(png4.8 rwimage.sh 256 256 4 8 PNg)
     new_test(png4.16 rwimage.sh 512 512 4 16 pnG)
 endif()
-
-
-#### Programs for profiling the code.
-
-set(Profilers readfloatarray readfloatarray2 readstringarray readintarray)
-add_custom_target(profile COMMENT "Building programs to be run with profiler")
-add_dependencies(profile ${Profilers})
-set(Readers src/BlockQueue.cpp src/InputChannel.cpp src/FileDescriptorInput.cpp src/JSONParsers.cpp)
-
-# Custom target that generates all profiler parsers at the same time.
-list(TRANSFORM Profilers APPEND "_io.hpp" OUTPUT_VARIABLE GenHpp)
-add_custom_target(generated
-    COMMENT "Generating profiler types from profile/profile.md"
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/profile/profile.md
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/profile/profile.md -o specs ${Profilers}
-    COMMAND ${CMAKE_CURRENT_LIST_DIR}/iogen -i specs
-    BYPRODUCTS ${GenHpp})
-
-function(setup_profiling TGTNAME)
-    add_executable(${TGTNAME} EXCLUDE_FROM_ALL profile/readparse.cpp ${Readers})
-    add_dependencies(${TGTNAME} generated)
-    target_compile_definitions(${TGTNAME} PRIVATE HEADER=${TGTNAME}_io.hpp)
-    target_include_directories(${TGTNAME} SYSTEM PRIVATE /usr/local/include)
-    target_include_directories(${TGTNAME} PRIVATE src)
-    target_include_directories(${TGTNAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-    target_compile_options(${TGTNAME} PRIVATE ${CxxStd})
-    target_compile_options(${TGTNAME} PRIVATE ${BuildOptions} ${ProfilerOptions})
-    target_link_libraries(${TGTNAME} PRIVATE ${ProfilerLinkOptions})
-endfunction()
-
-setup_profiling(readfloatarray)
-setup_profiling(readfloatarray2)
-setup_profiling(readstringarray)
-setup_profiling(readintarray)

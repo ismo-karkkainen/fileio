@@ -84,9 +84,9 @@ private:
                     continue;
             }
             try {
-                end = p.Scan(end, &block->back(), pp);
+                end = p.Parse(end, &block->back(), pp);
             }
-            catch (const ParserException& e) {
+            catch (const Exception& e) {
                 std::cerr << e.what() << std::endl;
                 finished = true;
                 continue;

@@ -17,7 +17,7 @@ Supported formats are PPM (P6-PPM), P3-PPM (text), TIFF (via libtiff), PNG
 readimage_io:
   namespace: readio
   requires:
-  - Int
+  - Int32
   types:
     ReadImageIn:
       filename:
@@ -53,9 +53,7 @@ readimage_io:
   generate:
     ReadImageIn:
       parser: true
-      writer: false
     ReadImageOut:
-      parser: false
       writer: true
 ...
 ```
@@ -91,7 +89,7 @@ writeimage_io:
         description: |
           Desired bit depth. Rounded up to nearest supported or maximum 16.
           Currently 8 and 16 are possible, except P3 supports 1 to 16.
-        format: Int
+        format: Int32
         required: false
       minimum:
         description: Minimum value for range of values in input image.
@@ -104,7 +102,6 @@ writeimage_io:
   generate:
     WriteImageIn:
       parser: true
-      writer: false
 ...
 ```
 

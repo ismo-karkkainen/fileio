@@ -323,29 +323,29 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
         return -3;
     if (!binary)
         contents.push_back(std::byte(0));
-    int width, height, maxval;
+    ParseInt32::Type width, height, maxval;
     const char* last = reinterpret_cast<const char*>(&contents.back());
     const char* curr = reinterpret_cast<const char*>(&contents.front() + 2);
     size_t idx = 0;
     // Comment lines are not supported in the file.
     ParserPool pp;
-    ParseInt p;
+    ParseInt32 p;
     try {
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        width = std::get<ParserPool::Int>(pp.Value);
+        width = std::get<ParserPool::Int32>(pp.Value);
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        height = std::get<ParserPool::Int>(pp.Value);
+        height = std::get<ParserPool::Int32>(pp.Value);
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        maxval = std::get<ParserPool::Int>(pp.Value);
+        maxval = std::get<ParserPool::Int32>(pp.Value);
         if (width <= 0 || height <= 0 || maxval <= 0 || 65535 < maxval)
             return -4;
         if (binary) {
@@ -379,7 +379,7 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
                     curr = p.Parse(curr, last, pp);
                     if (curr == nullptr)
                         return -7;
-                    component = std::get<ParserPool::Int>(pp.Value);
+                    component = std::get<ParserPool::Int32>(pp.Value);
                 }
         }
     }

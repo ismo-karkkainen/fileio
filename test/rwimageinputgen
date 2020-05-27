@@ -90,6 +90,7 @@ specs.each_pair do |basename, spec|
   elsif basename == 'readimage_io'
     out[basename] = { 'filename' => $OUTPUT, 'minimum' => 0, 'maximum' => 1 }
     out[basename]['format'] = $FORMAT unless $FORMAT.nil?
+    out[basename]['shift'] = 0.25
   end
 end
 

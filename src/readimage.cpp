@@ -462,6 +462,8 @@ int main(int argc, char** argv) {
             }
             val.format() = val.filename().substr(last + 1);
         }
+        if (!val.shiftGiven())
+            val.shift() = 0.0f;
         ReadFunc reader = nullptr;
         float shift = 0.0f;
         float scale = 1.0f;
@@ -513,13 +515,8 @@ int main(int argc, char** argv) {
                         maxval = component;
                 }
         maxval += 1;
-        // The 0.25 is to ensure that if values were truncated (writeimage)
-        // then the number is not at the edge of the range, which, if written
-        // and read repeatedly, risks moving values towards zero. If rounding
-        // is used, then original integer is at the middle but 0.25 still keeps
-        // the number from changing to a higher value (0.5 would cause that).
         if (val.minimumGiven() || val.maximumGiven())
-            shift += 0.25f - minval;
+            shift += val.shift() + minval;
         if (val.minimumGiven() && val.maximumGiven())
             scale /= (maxval - minval);
         for (auto& line : out.image)

@@ -35,6 +35,15 @@ readimage_io:
         description: Map largest possible value in image file to this value.
         format: Float
         required: false
+      shift:
+        description: |
+          Value to add to integer values to ensure truncation or rounding does
+          not cause values to shift if processing introduces unintended changes.
+          For rounding, 0 is ok, for truncation 0.5, and 0.25 works for both.
+          A side effect is that pixel value 0 will not be 0 in unscaled output.
+          Used only when minimum or maximum are given.
+        format: Float
+        required: false
     ReadImageOut:
       image:
         description: |

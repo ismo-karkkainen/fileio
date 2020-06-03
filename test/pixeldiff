@@ -7,6 +7,7 @@ $REF = nil
 $TEST = nil
 $DEPTH = nil
 $VERBOSE = false
+$CHANNEL = nil
 
 parser = OptionParser.new do |opts|
   opts.summary_indent = '  '
@@ -17,6 +18,7 @@ parser = OptionParser.new do |opts|
   opts.on('-r', '--reference FILENAME', 'Original file name.') { |f| $REF = f }
   opts.on('-t', '--test FILENAME', 'Processed file name.') { |f| $TEST = f }
   opts.on('-d', '--depth DEPTH', 'Color component bit depth') { |d| $DEPTH = Integer(d) }
+  opts.on('-c', '--channel INDEX', 'Color component index') { |d| $CHANNEL = Integer(d) }
   opts.on('-v', '--verbose', 'Print maximum difference and limit.') { $VERBOSE = true }
   opts.on('-h', '--help', 'Print this help and exit.') do
     STDOUT.puts opts
@@ -42,13 +44,21 @@ rescue StandardError
   exit 2
 end
 
-unless ref.has_key?('image') and test.has_key?('image')
-  STDERR.puts 'Both files are expected to have key "image".'
-  exit 3
+if $CHANNEL.nil?
+  unless ref.has_key?('image') and test.has_key?('image')
+    STDERR.puts 'Both files are expected to have key "image".'
+    exit 3
+  end
+  r = ref['image']
+  t = test['image']
+else
+  unless ref.has_key?('planes') and test.has_key?("plane#{$CHANNEL}")
+    STDERR.puts "Reference file is expected to have key \"planes\" and test file \"plane#{$CHANNEL}\""
+    exit 3
+  end
+  r = ref['planes']
+  t = test["plane#{$CHANNEL}"]
 end
-
-r = ref['image']
-t = test['image']
 
 unless r.size() == t.size()
   STDERR.puts "Height mismatch, #{r.size()} != #{t.size()}"
@@ -63,12 +73,23 @@ r.each_index do |h|
     exit 4
   end
   r[h].each_index do |w|
-    unless r[h][w].size() == t[h][w].size()
-      STDERR.puts "Pixel #{h},#{w} count mismatch, #{r[h][w].size()} != #{t[h][w].size()}"
-      exit 4
-    end
-    r[h][w].each_index do |k|
-      diff = (r[h][w][k] - t[h][w][k]).abs
+    if $CHANNEL.nil?
+      unless r[h][w].size() == t[h][w].size()
+        STDERR.puts "Pixel #{h},#{w} count mismatch, #{r[h][w].size()} != #{t[h][w].size()}"
+        exit 4
+      end
+      r[h][w].each_index do |k|
+        diff = (r[h][w][k] - t[h][w][k]).abs
+        unless diff < limit
+          STDERR.puts "Difference at #{h},#{w},#{k} limit #{limit} < #{diff}"
+          exit 5
+        end
+        if maxdiff < diff
+          maxdiff = diff
+        end
+      end
+    else
+      diff = (r[h][w][$CHANNEL] - t[h][w]).abs
       unless diff < limit
         STDERR.puts "Difference at #{h},#{w},#{k} limit #{limit} < #{diff}"
         exit 5

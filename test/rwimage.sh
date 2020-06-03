@@ -13,15 +13,15 @@ F=$5
 RI=$6
 WI=$7
 
-rwimageinputgen -i pspecs -w $W -h $H -c $C -d $D -f imagefile --format $F --read read.json --write write.json
+rwimageinputgen -i pspecs -w $W -h $H -c $C -d $D -f imagefile --format $F
 
-$WI < write.json
-$RI < read.json > out.json
+$WI < writeimage_io.json
+$RI < readimage_io.json > out.json
 
-pixeldiff --reference write.json --test out.json --depth $D
+pixeldiff --reference writeimage_io.json --test out.json --depth $D
 STATUS=$?
 
 if [ -z $KEEP ]; then
-    rm -f imagefile write.json read.json out.json
+    rm -f imagefile writeimage_io.json readimage_io.json split2planes_io.json out.json
 fi
 exit $STATUS

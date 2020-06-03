@@ -1,3 +1,11 @@
+//
+//  writeimage.cpp
+//
+//  Created by Ismo Kärkkäinen on 17.3.2020.
+//  Copyright © 2020 Ismo Kärkkäinen. All rights reserved.
+//
+// Licensed under Universal Permissive License. See License.txt.
+
 #include "writeimage_io.hpp"
 using namespace writeio;
 #include "FileDescriptorInput.hpp"

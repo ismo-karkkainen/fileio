@@ -114,7 +114,29 @@ writeimage_io:
 ...
 ```
 
-# Requirements
+## split2planes
+
+Splits the third dimension and outputs multiple separate arrays of arrays of
+floats, named plane0, plane1, ... until all components of the third dimension
+are used. Each array representing the third dimension must have the same
+length as others. If not, output object has error field with message.
+
+```
+---
+split2planes_io:
+  namespace: io
+  types:
+    Split2PlanesIn:
+      planes:
+        description: Array of arrays of arrays of floats.
+        format: [ ContainerStdVector, ContainerStdVector, StdVector, Float ]
+  generate:
+    Split2PlanesIn:
+      parser: true
+...
+```
+
+# Building
 
 For TIFF support you need the libraries and development files. Same for PNG.
 
@@ -124,7 +146,8 @@ You need specificjson to generate source code from the specifications.
     https://github.com/ismo-karkkainen/edicta
     https://github.com/ismo-karkkainen/specificjson
 
-# Building
+For unit tests, you need https://github.com/onqtam/doctest to compile them.
+Install into location for which `#include <doctest/doctest.h>` works.
 
 You need cmake and a C++ compiler that supports 2017 standard. Assuming a build
 directory parallel to the imageio directory, you can use:

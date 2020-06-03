@@ -1,3 +1,11 @@
+//
+//  readimage.cpp
+//
+//  Created by Ismo Kärkkäinen on 1.4.2020.
+//  Copyright © 2020 Ismo Kärkkäinen. All rights reserved.
+//
+// Licensed under Universal Permissive License. See License.txt.
+
 #include "FileDescriptorInput.hpp"
 #include "BlockQueue.hpp"
 #include <iostream>

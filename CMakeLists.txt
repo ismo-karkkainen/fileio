@@ -69,15 +69,15 @@ endfunction()
 
 #### Main programs
 
-set(Programs readimage writeimage)
+set(Programs readimage writeimage split2planes)
 
 set(Sources src/BlockQueue.cpp src/InputChannel.cpp src/FileDescriptorInput.cpp)
 
 add_custom_target(parsers COMMENT "Generating types from README.md"
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/README.md
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io split2planes_io
     COMMAND specificjson --input pspecs
-    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp)
+    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp split2planes_io.cpp split2planes_io.hpp)
 
 function(setup_main_program TGTNAME MAIN)
     add_executable(${TGTNAME} ${MAIN} ${Sources} ${CMAKE_CURRENT_BINARY_DIR}/${TGTNAME}_io.cpp)
@@ -96,6 +96,7 @@ endfunction()
 
 setup_main_program(readimage src/readimage.cpp)
 setup_main_program(writeimage src/writeimage.cpp)
+setup_main_program(split2planes src/split2planes.cpp)
 
 install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 
@@ -103,6 +104,20 @@ install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 #### Tests
 
 enable_testing()
+
+function(setup_unittest_program TGTNAME MAIN IO)
+    add_executable(${TGTNAME} ${MAIN} ${CMAKE_CURRENT_BINARY_DIR}/${IO}.cpp)
+    add_dependencies(${TGTNAME} parsers)
+    target_include_directories(${TGTNAME} SYSTEM PRIVATE /usr/local/include)
+    target_include_directories(${TGTNAME} PRIVATE src)
+    target_include_directories(${TGTNAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_compile_definitions(${TGTNAME} PRIVATE UNITTEST)
+    target_compile_options(${TGTNAME} PRIVATE ${CxxStd})
+    target_compile_options(${TGTNAME} PRIVATE ${BuildOptions})
+    add_test(NAME ${TGTNAME} COMMAND ${TGTNAME})
+endfunction()
+
+setup_unittest_program(unittest-split2planes src/split2planes.cpp split2planes_io)
 
 function(add_test_prog PROG)
     add_executable(${PROG} IMPORTED)
@@ -141,3 +156,13 @@ if (PNG_FOUND)
     new_test(png4.8 rwimage.sh 256 256 4 8 PNg)
     new_test(png4.16 rwimage.sh 512 512 4 16 pnG)
 endif()
+
+function(new_test_split TEST_NAME PROG WIDTH HEIGHT PLANES BITS INDEX)
+    add_test(NAME ${TEST_NAME} COMMAND ${PROG} ${WIDTH} ${HEIGHT} ${PLANES} ${BITS} ${INDEX} $<TARGET_FILE:split2planes>)
+    set_property(TEST ${TEST_NAME} PROPERTY ENVIRONMENT "PATH=${CMAKE_CURRENT_LIST_DIR}:${CMAKE_CURRENT_LIST_DIR}/test:$ENV{PATH}")
+endfunction()
+
+add_test_prog(splitimage.sh)
+new_test_split(plane0 splitimage.sh 255 134 1 16 0)
+new_test_split(plane1 splitimage.sh 128 65 3 24 1)
+new_test_split(plane2 splitimage.sh 98 66 3 18 2)

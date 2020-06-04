@@ -113,7 +113,7 @@ static int read_tiff(const ReadImageIn::filenameType& filename, Image& image) {
                 if (bits == 8)
                     component = float(*curr++);
                 else {
-                    component = float(*curr) * 256.0f + float(curr[1]);
+                    component = float(*reinterpret_cast<std::uint16_t*>(curr));
                     curr += 2;
                 }
         }

@@ -80,15 +80,16 @@ static int writeTIFF(const WriteImageIn::filenameType& filename,
     for (auto& line : image) {
         buf.resize(0);
         for (auto& pixel : line)
-            for (auto& component : pixel)
-                if (depth == 8)
+            if (depth == 8)
+                for (auto& component : pixel)
                     buf.push_back(static_cast<unsigned char>(component));
-                else {
-                    std::uint16_t val = static_cast<std::uint16_t>(component);
-                    buf.push_back((val >> 8) & 0xFF);
-                    buf.push_back(val & 0xFF);
+            else
+                for (auto& component : pixel) {
+                    buf.push_back(0);
+                    buf.push_back(0);
+                    *reinterpret_cast<std::uint16_t*>((&buf.back()) - 1) =
+                        static_cast<std::uint16_t>(component);
                 }
-
         if (TIFFWriteScanline(t, static_cast<tdata_t>(&buf.front()), count++, 0) != 1)
         {
             TIFFClose(t);
@@ -189,11 +190,12 @@ static int write_png(const char* filename, const WriteImageIn::imageType& image,
     buf.reserve(image.size() * row_size);
     for (auto& line : image) {
         for (auto& pixel : line)
-            for (auto& component : pixel)
-                if (depth == 8)
+            if (depth == 8)
+                for (auto& component : pixel)
                     buf << static_cast<char>(
                         static_cast<unsigned char>(component));
-                else {
+            else
+                for (auto& component : pixel) {
                     std::uint16_t val = static_cast<std::uint16_t>(component);
                     buf << static_cast<char>((val >> 8) & 0xff)
                         << static_cast<char>(val & 0xff);

@@ -285,25 +285,25 @@ static int writePlainPPM(const WriteImageIn::filenameType& filename,
     return 0;
 }
 
-static void write_image(WriteImageIn& val) {
+static bool write_image(WriteImageIn& val) {
     if (val.image().empty()) {
         std::cerr << "Image has zero height.\n";
-        return;
+        return false;
     }
     if (val.image()[0].empty()) {
         std::cerr << "Image has zero width.\n";
-        return;
+        return false;
     }
     if (val.image()[0][0].empty()) {
         std::cerr << "Image has zero depth.\n";
-        return;
+        return false;
     }
     // Check type presence. If not given, use file name extension.
     if (!val.formatGiven()) {
         size_t last = val.filename().find_last_of(".");
         if (last == std::string::npos) {
             std::cerr << "No format nor extension in filename.\n";
-            return;
+            return false;
         }
         val.format() = val.filename().substr(last + 1);
     }
@@ -323,7 +323,7 @@ static void write_image(WriteImageIn& val) {
         if (val.image()[0][0].size() != 3) {
             std::cerr << "Got " << val.image()[0][0].size() <<
                 " color planes, not 3.\n";
-            return;
+            return false;
         }
     } else if (strcasecmp(val.format().c_str(), "p3-ppm") == 0) {
         // Plain text-format PPM writer.
@@ -335,7 +335,7 @@ static void write_image(WriteImageIn& val) {
         if (val.image()[0][0].size() != 3) {
             std::cerr << "Got " << val.image()[0][0].size() <<
                 " color planes, not 3.\n";
-            return;
+            return false;
         }
 #if !defined(NO_TIFF)
     } else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
@@ -360,12 +360,12 @@ static void write_image(WriteImageIn& val) {
         if (4 < val.image()[0][0].size()) {
             std::cerr << "Too many color planes: " <<
                 val.image()[0][0].size() << std::endl;
-            return;
+            return false;
         }
 #endif
     } else {
         std::cerr << "Unsupported format: " << val.format() << std::endl;
-        return;
+        return false;
     }
     // Find minimum and maximum, if at least one is missing.
     if (!val.minimumGiven() || !val.maximumGiven()) {
@@ -387,20 +387,15 @@ static void write_image(WriteImageIn& val) {
     if (range < 0) {
         std::cerr << "Maximum (" << val.maximum() << ") < minimum ("
             << val.minimum() << ").\n";
-        return;
+        return false;
     }
     for (auto& line : val.image()) {
-        if (line.size() != val.image()[0].size()) {
-            std::cerr << "Image width not constant, " << line.size() << " != "
-                << val.image()[0].size() << std::endl;
-            return;
+        if (line.front().size() != val.image()[0][0].size()) {
+            std::cerr << "Color component count not constant, " <<
+                line.front().size() << " != " << val.image()[0][0].size() << "\n";
+            return false;
         }
         for (auto& pixel : line) {
-            if (pixel.size() != val.image()[0][0].size()) {
-                std::cerr << "Color component count not constant, " <<
-                    pixel.size() << " != " << val.image()[0][0].size() << "\n";
-                return;
-            }
             for (auto& component : pixel) {
                 component -= val.minimum();
                 if (component <= 0.0f)
@@ -434,7 +429,9 @@ static void write_image(WriteImageIn& val) {
     catch (std::ofstream::failure f) {
         unlink(val.filename().c_str());
         std::cerr << f.code() << ' ' << f.what() << '\n';
+        return false;
     }
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -457,7 +454,8 @@ int main(int argc, char** argv) {
         std::shared_ptr<WriteImageIn> v(vals.front());
         vals.pop_front();
         output_lock.unlock();
-        write_image(*v);
+        if (!write_image(*v))
+            return 1;
     }
     if (f)
         close(f);

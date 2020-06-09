@@ -93,7 +93,7 @@ writeimage_io:
         required: false
       image:
         description: Height * width * components array.
-        format: [ ContainerStdVector, ContainerStdVector, StdVector, Float ]
+        format: [ ContainerStdVectorEqSize, ContainerStdVectorEqSize, StdVector, Float ]
       depth:
         description: |
           Desired bit depth. Rounded up to nearest supported or maximum 16.
@@ -129,7 +129,7 @@ split2planes_io:
     Split2PlanesIn:
       planes:
         description: Array of arrays of arrays of floats.
-        format: [ ContainerStdVector, ContainerStdVector, StdVector, Float ]
+        format: [ ContainerStdVector, ContainerStdVectorEqSize, StdVector, Float ]
   generate:
     Split2PlanesIn:
       parser: true

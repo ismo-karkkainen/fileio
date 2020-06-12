@@ -28,14 +28,11 @@ using namespace io; // ThreadedReadParse does not know of the namespace name.
 
 static size_t plane_count(Split2PlanesIn::planesType& Planes) {
     size_t count = 0;
-    for (auto& row : Planes) {
-        for (auto& planes : row) {
-            if (count == 0)
-                count = planes.size();
-            else if (planes.size() != count)
-                throw "Third dimension size varies.";
-        }
-    }
+    for (auto& row : Planes)
+        if (count == 0)
+            count = row.front().size();
+        else if (row.front().size() != count)
+            throw "Third dimension size varies.";
     return count;
 }
 
@@ -53,22 +50,18 @@ static void separate(std::vector<std::vector<float>>& Out,
 }
 
 #if !defined(UNITTEST)
-static void split2planes(Split2PlanesIn& Val) {
-    std::vector<char> buffer;
-    if (Val.planes().empty()) {
-        std::cout << "{\"plane0\":[]}" << std::endl;
-        return;
-    }
+static bool split2planes(Split2PlanesIn& Val) {
     size_t count = 0;
     try {
         count = plane_count(Val.planes());
     }
     catch (const char* msg) {
-        std::cout << "{\"error\":\"" << msg << "\"}" << std::endl;
-        return;
+        std::cerr << msg << std::endl;
+        return false;
     }
     std::cout << '{';
     std::vector<std::vector<float>> plane;
+    std::vector<char> buffer;
     for (size_t k = 0; k < count; ++k) {
         separate(plane, Val.planes(), k);
         std::cout << "\"plane" << k << "\":";
@@ -77,6 +70,7 @@ static void split2planes(Split2PlanesIn& Val) {
             std::cout << ',';
     }
     std::cout << '}' << std::endl;
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -99,7 +93,8 @@ int main(int argc, char** argv) {
         std::shared_ptr<Split2PlanesIn> v(vals.front());
         vals.pop_front();
         output_lock.unlock();
-        split2planes(*v);
+        if (!split2planes(*v))
+            return 1;
     }
     if (f)
         close(f);
@@ -133,7 +128,7 @@ TEST_CASE("plane_count") {
         row.push_back(std::vector<float> { 2.0f, 3.0f });
         io::Split2PlanesIn::planesType planes;
         planes.push_back(std::vector<std::vector<float>>());
-        planes.back().push_back(std::vector<float> {0.0f, 1.0f, 2.0f });
+        planes.back().push_back(std::vector<float> { 0.0f, 1.0f, 2.0f });
         planes.push_back(row);
         REQUIRE_THROWS_AS(plane_count(planes), const char*);
     }

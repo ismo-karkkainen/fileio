@@ -75,9 +75,9 @@ set(Sources src/BlockQueue.cpp src/InputChannel.cpp src/FileDescriptorInput.cpp)
 
 add_custom_target(parsers COMMENT "Generating types from README.md"
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/README.md
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io split2planes_io
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io split2planes_io writecollada_io writegltf_io
     COMMAND specificjson --input pspecs
-    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp split2planes_io.cpp split2planes_io.hpp)
+    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp split2planes_io.cpp split2planes_io.hpp writecollada_io.cpp writecollada_io.hpp writegltf_io.cpp writegltf_io.hpp)
 
 function(setup_main_program TGTNAME MAIN)
     add_executable(${TGTNAME} ${MAIN} ${Sources} ${CMAKE_CURRENT_BINARY_DIR}/${TGTNAME}_io.cpp)
@@ -97,6 +97,8 @@ endfunction()
 setup_main_program(readimage src/readimage.cpp)
 setup_main_program(writeimage src/writeimage.cpp)
 setup_main_program(split2planes src/split2planes.cpp)
+setup_main_program(writecollada src/writecollada.cpp)
+setup_main_program(writegltf src/writegltf.cpp)
 
 install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 

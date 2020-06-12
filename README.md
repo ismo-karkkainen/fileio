@@ -1,7 +1,8 @@
-# ImageIO
+# FileIO
 
 Programs to read image files into arrays for use with datalackey. Programs
-to write image-like data from JSON arrays into images.
+to write image-like data from JSON arrays into images. Program to write a 3D
+model in COLLADA format. Other related tools.
 
 ## readimage
 
@@ -119,7 +120,7 @@ writeimage_io:
 Splits the third dimension and outputs multiple separate arrays of arrays of
 floats, named plane0, plane1, ... until all components of the third dimension
 are used. Each array representing the third dimension must have the same
-length as others. If not, output object has error field with message.
+length as others.
 
 ```
 ---
@@ -132,6 +133,82 @@ split2planes_io:
         format: [ ContainerStdVector, ContainerStdVectorEqSize, StdVector, Float ]
   generate:
     Split2PlanesIn:
+      parser: true
+...
+```
+
+## writegltf
+
+Writes given 3D model information as glTF file.
+
+```
+---
+writegltf_io:
+  namespace: io
+  types:
+    WriteglTFIn:
+      filename:
+        description: Output file name.
+        format: String
+      vertices:
+        description: Array of arrays of 3 float x, y, and z coordinates.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+      colors:
+        description: |
+          Array of arrays of 3 float red, green, and blue values. Has to match
+          vertices in order and size.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+        required: false
+      tristrips:
+        description: Array of arrays of indexes to top-level vertices array.
+        format: [ ContainerStdVector, StdVector, UInt32 ]
+  generate:
+    WriteglTFIn:
+      parser: true
+...
+```
+
+## writecollada
+
+Writes given 3D model information as COLLADA file.
+
+```
+---
+writecollada_io:
+  namespace: io
+  types:
+    WriteColladaIn:
+      filename:
+        description: Output file name.
+        format: String
+      vertices:
+        description: Array of arrays of 3 float x, y, and z coordinates.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+      colors:
+        description: |
+          Array of arrays of 3 float red, green, and blue values. Has to match
+          vertices in order and size.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+        required: false
+      tristrips:
+        description: Array of arrays of indexes to top-level vertices array.
+        format: [ ContainerStdVector, StdVector, UInt32 ]
+      asset:
+        description: asset element contents (child elements). Output as is.
+        format: String
+        required: false
+      effects:
+        description: |
+          library_effects element contents. Output as is. Use id "effect".
+        format: String
+        required: false
+      materials:
+        description: |
+          library_materials element contents. Output as is. Use id "material".
+        format: String
+        required: false
+  generate:
+    WriteColladaIn:
       parser: true
 ...
 ```
@@ -150,10 +227,10 @@ For unit tests, you need https://github.com/onqtam/doctest to compile them.
 Install into location for which `#include <doctest/doctest.h>` works.
 
 You need cmake and a C++ compiler that supports 2017 standard. Assuming a build
-directory parallel to the imageio directory, you can use:
+directory parallel to the fileio directory, you can use:
 
-    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=DEBUG ../imageio
-    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=RELEASE ../imageio
+    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=DEBUG ../fileio
+    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=RELEASE ../fileio
     cmake -G Xcode
 
 You can disable TIFF support by setting NO_TIFF to any value, for example:

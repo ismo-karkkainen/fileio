@@ -52,6 +52,44 @@ static void base64encode(std::vector<char>& Out, const char* Src, size_t Len) {
     }
 }
 
+static size_t flatten(std::vector<float>& Out,
+    std::vector<float>& Min, std::vector<float>& Max,
+    const std::vector<std::vector<float>>& Src)
+{
+    Out.resize(0);
+    Out.reserve(Src.size() * 3);
+    Min.resize(3);
+    Max.resize(3);
+    for (size_t k = 0; k < 3; ++k)
+        Min[k] = Max[k] = Src.front()[k];
+    for (auto& vertex : Src)
+        for (size_t k = 0; k < 3; ++k) {
+            Out.push_back(vertex[k]);
+            if (Max[k] < vertex[k])
+                Max[k] = vertex[k];
+            else if (vertex[k] < Min[k])
+                Min[k] = vertex[k];
+        }
+    return Out.size() * sizeof(float);
+}
+
+static void buffer_object(std::ofstream& Out,
+    const std::vector<char>& Buffer, size_t Length)
+{
+    Out << R"GLTF("buffers":[{"uri":"data:application/octet-stream;base64,)GLTF"
+        << std::string(Buffer.begin(), Buffer.end())
+        << R"GLTF(","byteLength":)GLTF" << Length << "}";
+}
+
+static void accessor_object(std::ofstream& Out, size_t Count,
+    const std::vector<float>& Min, const std::vector<float>& Max)
+{
+    Out << R"GLTF({"bufferView":1,"byteOffset":0,"componentType":5126,"count":)GLTF"
+        << Count << R"GLTF(,"type":"VEC3","max":[)GLTF"
+        << Max[0] << ',' << Max[1] << ',' << Max[2] << R"GLTF(],"min":[)GLTF"
+        << Min[0] << ',' << Min[1] << ',' << Min[2] << "]}";
+}
+
 #if !defined(UNITTEST)
 static bool writegltf(WriteglTFIn& Val) {
     std::ofstream out(Val.filename().c_str());
@@ -81,46 +119,22 @@ static bool writegltf(WriteglTFIn& Val) {
     size_t index_len = tris.size() * sizeof(std::uint32_t);
     base64encode(buffer, reinterpret_cast<const char*>(&(tris.front())),
         index_len);
-    out << R"GLTF("buffers":[{"uri":"data:application/octet-stream;base64,)GLTF"
-        << std::string(buffer.begin(), buffer.end())
-        << R"GLTF(","byteLength":)GLTF" << index_len << "},\n";
-    std::vector<float> flat;
-    std::vector<float> vertex_max, vertex_min;
-    vertex_max = vertex_min = Val.vertices().front();
-    for (auto& vertex : Val.vertices())
-        for (size_t k = 0; k < 3; ++k) {
-            flat.push_back(vertex[k]);
-            if (vertex_max[k] < vertex[k])
-                vertex_max[k] = vertex[k];
-            else if (vertex[k] < vertex_min[k])
-                vertex_min[k] = vertex[k];
-        }
-    size_t vertex_len = flat.size() * sizeof(float);
+    out << R"GLTF("buffers":[)GLTF";
+    buffer_object(out, buffer, index_len);
+    out << ",\n";
+    std::vector<float> flat, vertex_max, vertex_min;
+    size_t vertex_len = flatten(flat, vertex_min, vertex_max, Val.vertices());
     base64encode(buffer, reinterpret_cast<const char*>(&(flat.front())),
         vertex_len);
-    out << R"GLTF({"uri":"data:application/octet-stream;base64,)GLTF"
-        << std::string(buffer.begin(), buffer.end())
-        << R"GLTF(","byteLength":)GLTF" << vertex_len << "}";
+    buffer_object(out, buffer, vertex_len);
     size_t color_len = 0;
     std::vector<float> color_max, color_min;
     if (Val.colorsGiven()) {
-        flat.resize(0);
-        color_max = color_min = Val.colors().front();
-        for (auto& color : Val.colors())
-            for (auto& component : color) {
-                flat.push_back(component);
-                if (color_max[k] < color[k])
-                    color_max[k] = color[k];
-                else if (color[k] < color_min[k])
-                    color_min[k] = color[k];
-            }
-        color_len = flat.size() * sizeof(float);
+        color_len = flatten(flat, color_min, color_max, Val.colors());
         base64encode(buffer, reinterpret_cast<const char*>(&(flat.front())),
             color_len);
-        out << ",\n"
-            << R"GLTF({"uri":"data:application/octet-stream;base64,)GLTF"
-            << std::string(buffer.begin(), buffer.end())
-            << R"GLTF(","byteLength":)GLTF" << color_len << "}";
+        out << ",\n";
+        buffer_object(out, buffer, color_len);
     }
     out << R"GLTF(],
 "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":)GLTF"
@@ -136,23 +150,14 @@ static bool writegltf(WriteglTFIn& Val) {
         << (index_len / sizeof(std::uint32_t))
         << R"GLTF(,"type":"SCALAR","max":[)GLTF"
         << vertex_len / (sizeof(float) * 3) - 1
-        << R"GLTF(],"min":[0]},
-{"bufferView":1,"byteOffset":0,"componentType":5126,"count":)GLTF"
-        << (vertex_len / (sizeof(float) * 3))
-        << R"GLTF(,"type":"VEC3","max":[)GLTF"
-        << vertex_max[0] << ',' << vertex_max[1] << ',' << vertex_max[2]
-        << R"GLTF(],"min":[)GLTF"
-        << vertex_min[0] << ',' << vertex_min[1] << ',' << vertex_min[2]
-        << "]}";
-    if (Val.colorsGiven())
-        out << R"GLTF(,
-{"bufferView":2,"byteOffset":0,"componentType":5126,"count":)GLTF"
-            << (color_len / (sizeof(float) * 3))
-            << R"GLTF(,"type":"VEC3","max":[)GLTF"
-            << color_max[0] << ',' << color_max[1] << ',' << color_max[2]
-            << R"GLTF(],"min":[)GLTF"
-            << color_min[0] << ',' << color_min[1] << ',' << color_min[2]
-            << "]}";
+        << R"GLTF(],"min":[0]},)GLTF" << "\n";
+    accessor_object(out,
+        vertex_len / (sizeof(float) * 3), vertex_min, vertex_max);
+    if (Val.colorsGiven()) {
+        out << ",\n";
+        accessor_object(out,
+            color_len / (sizeof(float) * 3), color_min, color_max);
+    }
     out << R"GLTF(],
 "asset":{"version":"2.0"}})GLTF";
     bool ok = out.good();

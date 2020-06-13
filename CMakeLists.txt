@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(imageio CXX)
+project(fileio CXX)
 
 #### Parameter set-up and library support detection.
 

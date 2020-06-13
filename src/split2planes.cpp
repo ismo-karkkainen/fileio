@@ -29,7 +29,9 @@ using namespace io; // ThreadedReadParse does not know of the namespace name.
 static size_t plane_count(Split2PlanesIn::planesType& Planes) {
     size_t count = 0;
     for (auto& row : Planes)
-        if (count == 0)
+        if (row.empty())
+            continue;
+        else if (count == 0)
             count = row.front().size();
         else if (row.front().size() != count)
             throw "Third dimension size varies.";

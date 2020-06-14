@@ -69,7 +69,7 @@ endfunction()
 
 #### Main programs
 
-set(Programs readimage writeimage split2planes)
+set(Programs readimage writeimage split2planes writecollada writegltf)
 
 add_custom_target(parsers COMMENT "Generating types from README.md"
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/README.md

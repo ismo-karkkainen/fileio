@@ -7,13 +7,11 @@
 // Licensed under Universal Permissive License. See License.txt.
 
 #include "split2planes_io.hpp"
-using namespace io; // ThreadedReadParse does not know of the namespace name.
 #if defined(UNITTEST)
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #else
-#include "FileDescriptorInput.hpp"
-#include "ThreadedReadParse_t.hpp"
+#include "convenience.hpp"
 #endif
 #include <iostream>
 #include <fcntl.h>
@@ -26,7 +24,7 @@ using namespace io; // ThreadedReadParse does not know of the namespace name.
 #include <sstream>
 #include <deque>
 
-static size_t plane_count(Split2PlanesIn::planesType& Planes) {
+static size_t plane_count(io::Split2PlanesIn::planesType& Planes) {
     size_t count = 0;
     for (auto& row : Planes)
         if (row.empty())
@@ -39,7 +37,7 @@ static size_t plane_count(Split2PlanesIn::planesType& Planes) {
 }
 
 static void separate(std::vector<std::vector<float>>& Out,
-    Split2PlanesIn::planesType& Planes, size_t Index)
+    io::Split2PlanesIn::planesType& Planes, size_t Index)
 {
     Out.resize(Planes.size());
     for (size_t row_index = 0; row_index < Planes.size(); ++row_index) {
@@ -52,14 +50,15 @@ static void separate(std::vector<std::vector<float>>& Out,
 }
 
 #if !defined(UNITTEST)
-static bool split2planes(Split2PlanesIn& Val) {
+
+static int split2planes(io::Split2PlanesIn& Val) {
     size_t count = 0;
     try {
         count = plane_count(Val.planes());
     }
     catch (const char* msg) {
         std::cerr << msg << std::endl;
-        return false;
+        return 1;
     }
     std::cout << '{';
     std::vector<std::vector<float>> plane;
@@ -67,40 +66,24 @@ static bool split2planes(Split2PlanesIn& Val) {
     for (size_t k = 0; k < count; ++k) {
         separate(plane, Val.planes(), k);
         std::cout << "\"plane" << k << "\":";
-        Write(std::cout, plane, buffer);
+        io::Write(std::cout, plane, buffer);
         if (k + 1 < count)
             std::cout << ',';
     }
     std::cout << '}' << std::endl;
-    return true;
+    return 0;
 }
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
-    FileDescriptorInput input(f);
-    std::deque<std::shared_ptr<Split2PlanesIn>> vals;
-    std::mutex vals_mutex;
-    std::condition_variable output_added;
-    ThreadedReadParse<Split2PlanesIn_Parser, Split2PlanesIn> reader(
-        input, vals, vals_mutex, output_added);
-    while (!reader.Finished() || !vals.empty()) {
-        std::unique_lock<std::mutex> output_lock(vals_mutex);
-        if (vals.empty()) {
-            output_added.wait(output_lock);
-            output_lock.unlock();
-            continue; // If woken because quitting, loop condition breaks.
-        }
-        std::shared_ptr<Split2PlanesIn> v(vals.front());
-        vals.pop_front();
-        output_lock.unlock();
-        if (!split2planes(*v))
-            return 1;
-    }
+    InputParser<io::ParserPool, io::Split2PlanesIn_Parser, io::Split2PlanesIn>
+        ip(f);
+    int status = ip.ReadAndParse(split2planes);
     if (f)
         close(f);
-    return 0;
+    return status;
 }
 
 #else

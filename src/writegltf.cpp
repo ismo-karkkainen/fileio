@@ -7,13 +7,11 @@
 // Licensed under Universal Permissive License. See License.txt.
 
 #include "writegltf_io.hpp"
-using namespace io; // ThreadedReadParse does not know of the namespace name.
 #if defined(UNITTEST)
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #else
-#include "FileDescriptorInput.hpp"
-#include "ThreadedReadParse_t.hpp"
+#include "convenience.hpp"
 #endif
 #include <iostream>
 #include <fcntl.h>
@@ -28,7 +26,8 @@ using namespace io; // ThreadedReadParse does not know of the namespace name.
 
 
 static void base64encode(std::vector<char>& Out, const char* Src, size_t Len) {
-    const char c[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const char c[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     Out.resize(0);
     Out.reserve(4 * ((Len + 2) / 3));
     while (3 <= Len) {
@@ -91,11 +90,11 @@ static void accessor_object(std::ofstream& Out, size_t Count,
 }
 
 #if !defined(UNITTEST)
-static bool writegltf(WriteglTFIn& Val) {
+static int writegltf(io::WriteglTFIn& Val) {
     std::ofstream out(Val.filename().c_str());
     if (out.fail()) {
         std::cerr << "Failed to open: " << Val.filename() << std::endl;
-        return false;
+        return 1;
     }
     out << R"GLTF({"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
 "meshes":[{"primitives":[{"attributes":{"POSITION":1)GLTF";
@@ -162,35 +161,18 @@ static bool writegltf(WriteglTFIn& Val) {
 "asset":{"version":"2.0"}})GLTF";
     bool ok = out.good();
     out.close();
-    return ok;
+    return ok ? 0 : 2;
 }
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
-    FileDescriptorInput input(f);
-    std::deque<std::shared_ptr<WriteglTFIn>> vals;
-    std::mutex vals_mutex;
-    std::condition_variable output_added;
-    ThreadedReadParse<WriteglTFIn_Parser, WriteglTFIn> reader(
-        input, vals, vals_mutex, output_added);
-    while (!reader.Finished() || !vals.empty()) {
-        std::unique_lock<std::mutex> output_lock(vals_mutex);
-        if (vals.empty()) {
-            output_added.wait(output_lock);
-            output_lock.unlock();
-            continue; // If woken because quitting, loop condition breaks.
-        }
-        std::shared_ptr<WriteglTFIn> v(vals.front());
-        vals.pop_front();
-        output_lock.unlock();
-        if (!writegltf(*v))
-            return 1;
-    }
+    InputParser<io::ParserPool, io::WriteglTFIn_Parser, io:: WriteglTFIn> ip(f);
+    int status = ip.ReadAndParse(writegltf);
     if (f)
         close(f);
-    return 0;
+    return status;
 }
 
 #else

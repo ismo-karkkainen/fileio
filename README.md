@@ -16,7 +16,7 @@ Supported formats are PPM (P6-PPM), P3-PPM (text), TIFF (via libtiff), PNG
 ```
 ---
 readimage_io:
-  namespace: readio
+  namespace: io
   requires:
   - Int32
   types:
@@ -47,19 +47,9 @@ readimage_io:
         required: false
     ReadImageOut:
       image:
-        description: |
-          Height * width * components array in [minimum, maximum].
-          Present only if error is not, and vice versa.
+        description: Height * width * components array in [minimum, maximum].
         format: [ ContainerStdVector, ContainerStdVector, StdVector, Float ]
-        required: false
-        checker: "error.size() == 0"
         accessor: image
-      error:
-        description: Error string if reading the image fails.
-        format: String
-        required: false
-        checker: "error.size() != 0"
-        accessor: error
   generate:
     ReadImageIn:
       parser: true
@@ -82,7 +72,7 @@ Compression is not used.
 ```
 ---
 writeimage_io:
-  namespace: writeio
+  namespace: io
   types:
     WriteImageIn:
       filename:

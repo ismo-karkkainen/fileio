@@ -7,9 +7,7 @@
 // Licensed under Universal Permissive License. See License.txt.
 
 #include "writeimage_io.hpp"
-using namespace writeio;
-#include "FileDescriptorInput.hpp"
-#include "ThreadedReadParse_t.hpp"
+#include "convenience.hpp"
 #include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
@@ -30,12 +28,12 @@ using namespace writeio;
 #endif
 
 
-typedef int (*WriteFunc)(const WriteImageIn::filenameType&, const WriteImageIn::imageType&, WriteImageIn::depthType);
+typedef int (*WriteFunc)(const io::WriteImageIn::filenameType&, const io::WriteImageIn::imageType&, io::WriteImageIn::depthType);
 
 #if !defined(NO_TIFF)
 
-static int writeTIFF(const WriteImageIn::filenameType& filename,
-    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
+static int writeTIFF(const io::WriteImageIn::filenameType& filename,
+    const io::WriteImageIn::imageType& image, io::WriteImageIn::depthType depth)
 {
     TIFF* t = TIFFOpen(filename.c_str(), "w");
     if (!t) {
@@ -150,8 +148,8 @@ static void destroy_info(png_infop p) {
 static std::string png_error_message;
 
 
-static int write_png(const char* filename, const WriteImageIn::imageType& image,
-    WriteImageIn::depthType depth)
+static int write_png(const char* filename,
+    const io::WriteImageIn::imageType& image, io::WriteImageIn::depthType depth)
 {
     png_filename = filename;
     std::unique_ptr<FILE,void (*)(FILE*)> file(
@@ -211,8 +209,8 @@ static int write_png(const char* filename, const WriteImageIn::imageType& image,
     return 0;
 }
 
-static int writePNG(const WriteImageIn::filenameType& filename,
-    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
+static int writePNG(const io::WriteImageIn::filenameType& filename,
+    const io::WriteImageIn::imageType& image, io::WriteImageIn::depthType depth)
 {
     try {
         switch (write_png(filename.c_str(), image, depth)) {
@@ -240,8 +238,8 @@ static int writePNG(const WriteImageIn::filenameType& filename,
 
 // PPM, NetPBM color image binary format.
 
-static int writePPM(const WriteImageIn::filenameType& filename,
-    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
+static int writePPM(const io::WriteImageIn::filenameType& filename,
+    const io::WriteImageIn::imageType& image, io::WriteImageIn::depthType depth)
 {
     std::ofstream out;
     out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
@@ -270,8 +268,8 @@ static int writePPM(const WriteImageIn::filenameType& filename,
 
 // PPM, NetPBM color image text format.
 
-static int writePlainPPM(const WriteImageIn::filenameType& filename,
-    const WriteImageIn::imageType& image, WriteImageIn::depthType depth)
+static int writePlainPPM(const io::WriteImageIn::filenameType& filename,
+    const io::WriteImageIn::imageType& image, io::WriteImageIn::depthType depth)
 {
     std::ofstream out;
     out.exceptions(std::ofstream::failbit | std::ofstream::badbit);
@@ -285,25 +283,25 @@ static int writePlainPPM(const WriteImageIn::filenameType& filename,
     return 0;
 }
 
-static bool write_image(WriteImageIn& val) {
+static int write_image(io::WriteImageIn& val) {
     if (val.image().empty()) {
         std::cerr << "Image has zero height.\n";
-        return false;
+        return 1;
     }
     if (val.image()[0].empty()) {
         std::cerr << "Image has zero width.\n";
-        return false;
+        return 1;
     }
     if (val.image()[0][0].empty()) {
         std::cerr << "Image has zero depth.\n";
-        return false;
+        return 1;
     }
     // Check type presence. If not given, use file name extension.
     if (!val.formatGiven()) {
         size_t last = val.filename().find_last_of(".");
         if (last == std::string::npos) {
             std::cerr << "No format nor extension in filename.\n";
-            return false;
+            return 1;
         }
         val.format() = val.filename().substr(last + 1);
     }
@@ -323,7 +321,7 @@ static bool write_image(WriteImageIn& val) {
         if (val.image()[0][0].size() != 3) {
             std::cerr << "Got " << val.image()[0][0].size() <<
                 " color planes, not 3.\n";
-            return false;
+            return 1;
         }
     } else if (strcasecmp(val.format().c_str(), "p3-ppm") == 0) {
         // Plain text-format PPM writer.
@@ -335,7 +333,7 @@ static bool write_image(WriteImageIn& val) {
         if (val.image()[0][0].size() != 3) {
             std::cerr << "Got " << val.image()[0][0].size() <<
                 " color planes, not 3.\n";
-            return false;
+            return 1;
         }
 #if !defined(NO_TIFF)
     } else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
@@ -360,12 +358,12 @@ static bool write_image(WriteImageIn& val) {
         if (4 < val.image()[0][0].size()) {
             std::cerr << "Too many color planes: " <<
                 val.image()[0][0].size() << std::endl;
-            return false;
+            return 1;
         }
 #endif
     } else {
         std::cerr << "Unsupported format: " << val.format() << std::endl;
-        return false;
+        return 1;
     }
     // Find minimum and maximum, if at least one is missing.
     if (!val.minimumGiven() || !val.maximumGiven()) {
@@ -387,13 +385,13 @@ static bool write_image(WriteImageIn& val) {
     if (range < 0) {
         std::cerr << "Maximum (" << val.maximum() << ") < minimum ("
             << val.minimum() << ").\n";
-        return false;
+        return 1;
     }
     for (auto& line : val.image()) {
         if (line.front().size() != val.image()[0][0].size()) {
             std::cerr << "Color component count not constant, " <<
                 line.front().size() << " != " << val.image()[0][0].size() << "\n";
-            return false;
+            return 1;
         }
         for (auto& pixel : line) {
             for (auto& component : pixel) {
@@ -429,35 +427,19 @@ static bool write_image(WriteImageIn& val) {
     catch (std::ofstream::failure f) {
         unlink(val.filename().c_str());
         std::cerr << f.code() << ' ' << f.what() << '\n';
-        return false;
+        return 2;
     }
-    return true;
+    return 0;
 }
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
-    FileDescriptorInput input(f);
-    std::deque<std::shared_ptr<WriteImageIn>> vals;
-    std::mutex vals_mutex;
-    std::condition_variable output_added;
-    ThreadedReadParse<WriteImageIn_Parser, WriteImageIn> reader(
-        input, vals, vals_mutex, output_added);
-    while (!reader.Finished() || !vals.empty()) {
-        std::unique_lock<std::mutex> output_lock(vals_mutex);
-        if (vals.empty()) {
-            output_added.wait(output_lock);
-            output_lock.unlock();
-            continue; // If woken because quitting, loop condition breaks.
-        }
-        std::shared_ptr<WriteImageIn> v(vals.front());
-        vals.pop_front();
-        output_lock.unlock();
-        if (!write_image(*v))
-            return 1;
-    }
+    InputParser<io::ParserPool, io::WriteImageIn_Parser, io::WriteImageIn>
+        ip(f);
+    int status = ip.ReadAndParse(write_image);
     if (f)
         close(f);
-    return 0;
+    return status;
 }

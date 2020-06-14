@@ -6,8 +6,7 @@
 //
 // Licensed under Universal Permissive License. See License.txt.
 
-#include "FileDescriptorInput.hpp"
-#include "BlockQueue.hpp"
+#include "convenience.hpp"
 #include <iostream>
 #include <fcntl.h>
 #include <unistd.h>
@@ -29,11 +28,8 @@
 #endif
 
 typedef std::vector<std::vector<std::vector<float>>> Image;
-#define READIO_READIMAGEOUT_TYPE ReadImageOut_Template<Image,std::string>
-
+#define IO_READIMAGEOUT_TYPE ReadImageOut_Template<Image>
 #include "readimage_io.hpp"
-
-using namespace readio;
 
 
 int read_whole_file(std::vector<std::byte>& Contents, const char* Filename) {
@@ -52,7 +48,7 @@ int read_whole_file(std::vector<std::byte>& Contents, const char* Filename) {
 }
 
 
-typedef const char* (*ReadFunc)(const ReadImageIn::filenameType&, Image&);
+typedef const char* (*ReadFunc)(const io::ReadImageIn::filenameType&, Image&);
 
 #if !defined(NO_TIFF)
 static std::string tiff_error;
@@ -74,7 +70,9 @@ retry:
         tiff_error += &buffer.front();
 }
 
-static int read_tiff(const ReadImageIn::filenameType& filename, Image& image) {
+static int read_tiff(
+    const io::ReadImageIn::filenameType& filename, Image& image)
+{
     TIFFSetWarningHandler(NULL);
     TIFFSetErrorHandler(&handle_tiff_error);
     TIFF* t = TIFFOpen(filename.c_str(), "r");
@@ -123,7 +121,7 @@ static int read_tiff(const ReadImageIn::filenameType& filename, Image& image) {
 }
 
 static const char* readTIFF(
-    const ReadImageIn::filenameType& filename, Image& image)
+    const io::ReadImageIn::filenameType& filename, Image& image)
 {
     int status = read_tiff(filename, image);
     switch (status) {
@@ -164,7 +162,7 @@ static void end_relay(png_structp png, png_infop info);
 
 class ReadPNG {
 private:
-    const ReadImageIn::filenameType& filename;
+    const io::ReadImageIn::filenameType& filename;
     Image& image;
     std::vector<std::byte> contents;
     png_uint_32 width, height;
@@ -192,7 +190,7 @@ private:
     }
 
 public:
-    ReadPNG(const ReadImageIn::filenameType& Filename, Image& I)
+    ReadPNG(const io::ReadImageIn::filenameType& Filename, Image& I)
         : filename(Filename), image(I),
         width(0), height(0), passes(1), channels(0), bytes(0) { }
 
@@ -297,7 +295,7 @@ static void end_relay(png_structp png, png_infop info) {
 }
 
 static const char* readPNG(
-    const ReadImageIn::filenameType& filename, Image& image)
+    const io::ReadImageIn::filenameType& filename, Image& image)
 {
     ReadPNG reader(filename, image);
     int status = reader.Read();
@@ -316,7 +314,8 @@ static const char* readPNG(
 
 // PPM, NetPBM color image binary format.
 
-static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
+static int read_ppm(const io::ReadImageIn::filenameType& filename, Image& image)
+{
     std::vector<std::byte> contents;
     int status = read_whole_file(contents, filename.c_str());
     if (status != 0)
@@ -331,29 +330,29 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
         return -3;
     if (!binary)
         contents.push_back(std::byte(0));
-    ParseInt32::Type width, height, maxval;
+    io::ParseInt32::Type width, height, maxval;
     const char* last = reinterpret_cast<const char*>(&contents.back());
     const char* curr = reinterpret_cast<const char*>(&contents.front() + 2);
     size_t idx = 0;
     // Comment lines are not supported in the file.
-    ParserPool pp;
-    ParseInt32 p;
+    io::ParserPool pp;
+    io::ParseInt32 p;
     try {
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        width = std::get<ParserPool::Int32>(pp.Value);
+        width = std::get<io::ParserPool::Int32>(pp.Value);
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        height = std::get<ParserPool::Int32>(pp.Value);
+        height = std::get<io::ParserPool::Int32>(pp.Value);
         curr = p.skipWhitespace(curr, last);
         curr = p.Parse(curr, last, pp);
         if (curr == nullptr || !p.isWhitespace(*curr))
             return -4;
-        maxval = std::get<ParserPool::Int32>(pp.Value);
+        maxval = std::get<io::ParserPool::Int32>(pp.Value);
         if (width <= 0 || height <= 0 || maxval <= 0 || 65535 < maxval)
             return -4;
         if (binary) {
@@ -363,7 +362,7 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
                 return -5;
         }
     }
-    catch (const Exception& e) {
+    catch (const io::Exception& e) {
         return -4;
     }
     image.resize(height);
@@ -387,7 +386,7 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
                     curr = p.Parse(curr, last, pp);
                     if (curr == nullptr)
                         return -7;
-                    component = std::get<ParserPool::Int32>(pp.Value);
+                    component = std::get<io::ParserPool::Int32>(pp.Value);
                 }
         }
     }
@@ -395,7 +394,7 @@ static int read_ppm(const ReadImageIn::filenameType& filename, Image& image) {
 }
 
 static const char* readPPM(
-    const ReadImageIn::filenameType& filename, Image& image)
+    const io::ReadImageIn::filenameType& filename, Image& image)
 {
     int status = read_ppm(filename, image);
     if (status > 0)
@@ -413,125 +412,86 @@ static const char* readPPM(
     return "Unspecified error.";
 }
 
-static void report(const ReadImageOut& Out) {
+static int read_image(io::ReadImageIn& Val) {
+    io::ReadImageOut out;
+    if (!Val.formatGiven()) {
+        size_t last = Val.filename().find_last_of(".");
+        if (last == std::string::npos) {
+            std::cerr << "No format nor extension in filename." << std::endl;
+            return 1;
+        }
+        Val.format() = Val.filename().substr(last + 1);
+    }
+    if (!Val.shiftGiven())
+        Val.shift() = 0.0f;
+    ReadFunc reader = nullptr;
+    float shift = 0.0f;
+    float scale = 1.0f;
+    if (Val.minimumGiven()) {
+        shift = Val.minimum();
+        if (Val.maximumGiven()) {
+            if (Val.maximum() <= Val.minimum()) {
+                std::cerr << "maximum <= minimum" << std::endl;
+                return 1;
+            }
+            scale = Val.maximum() - Val.minimum();
+        }
+    } else if (Val.maximumGiven())
+        shift = Val.maximum();
+    if (strcasecmp(Val.format().c_str(), "ppm") == 0 ||
+        strcasecmp(Val.format().c_str(), "p6-ppm") == 0 ||
+        strcasecmp(Val.format().c_str(), "p3-ppm") == 0)
+            reader = &readPPM;
+#if !defined(NO_TIFF)
+    else if (strcasecmp(Val.format().c_str(), "tiff") == 0 ||
+        strcasecmp(Val.format().c_str(), "tif") == 0)
+            reader = &readTIFF;
+#endif
+#if !defined(NO_PNG)
+    else if (strcasecmp(Val.format().c_str(), "png") == 0)
+        reader = &readPNG;
+#endif
+    else {
+        std::cerr << "Unsupported format: " << Val.format() << std::endl;
+        return 1;
+    }
+    const char* err = reader(Val.filename(), out.image);
+    if (err) {
+        std::cerr << err << std::endl;
+        return 2;
+    }
+    // Data is positive integers at this point.
+    float minval, maxval;
+    minval = maxval = out.image[0][0][0];
+    for (auto& line : out.image)
+        for (auto& pixel : line)
+            for (auto& component : pixel) {
+                if (component < minval)
+                    minval = component;
+                if (maxval < component)
+                    maxval = component;
+            }
+    maxval += 1;
+    if (Val.minimumGiven() || Val.maximumGiven())
+        shift += Val.shift() + minval;
+    if (Val.minimumGiven() && Val.maximumGiven())
+        scale /= (maxval - minval);
+    for (auto& line : out.image)
+        for (auto& pixel : line)
+            for (auto& component : pixel)
+                component = (component + shift) * scale;
     std::vector<char> buffer;
-    Write(std::cout, Out, buffer);
+    Write(std::cout, out, buffer);
+    return 0;
 }
-
-const size_t block_size = 4096; // Presumably way bigger than single input.
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
-    FileDescriptorInput input(f);
-    BlockQueue::BlockPtr buffer;
-    ParserPool pp;
-    ReadImageIn_Parser parser;
-    const char* end = nullptr;
-    while (!input.Ended()) {
-        if (end == nullptr) {
-            if (!buffer)
-                buffer.reset(new BlockQueue::Block());
-            if (buffer->size() != block_size + 1)
-                buffer->resize(block_size + 1);
-            int count = input.Read(&buffer->front(), block_size);
-            if (count == 0)
-                continue;
-            buffer->resize(count + 1);
-            buffer->back() = 0;
-            end = &buffer->front();
-        }
-        if (parser.Finished()) {
-            end = pp.skipWhitespace(end, &buffer->back());
-            if (end == nullptr)
-                continue;
-        }
-        try {
-            end = parser.Parse(end, &buffer->back(), pp);
-        }
-        catch (const Exception& e) {
-            std::cerr << e.what() << std::endl;
-            return 1;
-        }
-        if (!parser.Finished()) {
-            end = nullptr;
-            continue;
-        }
-        ReadImageIn val;
-        parser.Swap(val.values);
-        ReadImageOut out;
-        if (!val.formatGiven()) {
-            size_t last = val.filename().find_last_of(".");
-            if (last == std::string::npos) {
-                out.error = "No format nor extension in filename.";
-                report(out);
-                continue;
-            }
-            val.format() = val.filename().substr(last + 1);
-        }
-        if (!val.shiftGiven())
-            val.shift() = 0.0f;
-        ReadFunc reader = nullptr;
-        float shift = 0.0f;
-        float scale = 1.0f;
-        if (val.minimumGiven()) {
-            shift = val.minimum();
-            if (val.maximumGiven()) {
-                if (val.maximum() <= val.minimum()) {
-                    out.error = "maximum <= minimum";
-                    report(out);
-                    continue;
-                }
-                scale = val.maximum() - val.minimum();
-            }
-        } else if (val.maximumGiven())
-            shift = val.maximum();
-        if (strcasecmp(val.format().c_str(), "ppm") == 0 ||
-            strcasecmp(val.format().c_str(), "p6-ppm") == 0 ||
-            strcasecmp(val.format().c_str(), "p3-ppm") == 0)
-                reader = &readPPM;
-#if !defined(NO_TIFF)
-        else if (strcasecmp(val.format().c_str(), "tiff") == 0 ||
-            strcasecmp(val.format().c_str(), "tif") == 0)
-                reader = &readTIFF;
-#endif
-#if !defined(NO_PNG)
-        else if (strcasecmp(val.format().c_str(), "png") == 0)
-            reader = &readPNG;
-#endif
-        else {
-            out.error = "Unsupported format: " + val.format();
-            report(out);
-            continue;
-        }
-        const char* err = reader(val.filename(), out.image);
-        if (err) {
-            out.error = std::string(err);
-            report(out);
-            continue;
-        }
-        // Data is positive integers at this point.
-        float minval, maxval;
-        minval = maxval = out.image[0][0][0];
-        for (auto& line : out.image)
-            for (auto& pixel : line)
-                for (auto& component : pixel) {
-                    if (component < minval)
-                        minval = component;
-                    if (maxval < component)
-                        maxval = component;
-                }
-        maxval += 1;
-        if (val.minimumGiven() || val.maximumGiven())
-            shift += val.shift() + minval;
-        if (val.minimumGiven() && val.maximumGiven())
-            scale /= (maxval - minval);
-        for (auto& line : out.image)
-            for (auto& pixel : line)
-                for (auto& component : pixel)
-                    component = (component + shift) * scale;
-        report(out);
-    }
-    return 0;
+    InputParser<io::ParserPool, io::ReadImageIn_Parser, io::ReadImageIn> ip(f);
+    int status = ip.ReadAndParse(read_image);
+    if (f)
+        close(f);
+    return status;
 }

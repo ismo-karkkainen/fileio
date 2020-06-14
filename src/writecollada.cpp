@@ -7,13 +7,11 @@
 // Licensed under Universal Permissive License. See License.txt.
 
 #include "writecollada_io.hpp"
-using namespace io; // ThreadedReadParse does not know of the namespace name.
 #if defined(UNITTEST)
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #else
-#include "FileDescriptorInput.hpp"
-#include "ThreadedReadParse_t.hpp"
+#include "convenience.hpp"
 #endif
 #include <iostream>
 #include <fcntl.h>
@@ -28,7 +26,7 @@ using namespace io; // ThreadedReadParse does not know of the namespace name.
 
 
 #if !defined(UNITTEST)
-static bool writecollada(WriteColladaIn& Val) {
+static int writecollada(io::WriteColladaIn& Val) {
     // Convert all tri-strips (and later fans) to triangles.
     std::vector<std::vector<std::uint32_t>> triangles;
     for (auto& strip : Val.tristrips())
@@ -42,7 +40,7 @@ static bool writecollada(WriteColladaIn& Val) {
     std::ofstream out(Val.filename().c_str());
     if (out.fail()) {
         std::cerr << "Failed to open: " << Val.filename() << std::endl;
-        return false;
+        return 1;
     }
     std::vector<char> buffer;
     out << R"WRDAE(<?xml version="1.0" encoding="utf-8"?>
@@ -112,35 +110,19 @@ static bool writecollada(WriteColladaIn& Val) {
 </COLLADA>)WRDAE";
     bool ok = out.good();
     out.close();
-    return ok;
+    return ok ? 0 : 2;
 }
 
 int main(int argc, char** argv) {
     int f = 0;
     if (argc > 1)
         f = open(argv[1], O_RDONLY);
-    FileDescriptorInput input(f);
-    std::deque<std::shared_ptr<WriteColladaIn>> vals;
-    std::mutex vals_mutex;
-    std::condition_variable output_added;
-    ThreadedReadParse<WriteColladaIn_Parser, WriteColladaIn> reader(
-        input, vals, vals_mutex, output_added);
-    while (!reader.Finished() || !vals.empty()) {
-        std::unique_lock<std::mutex> output_lock(vals_mutex);
-        if (vals.empty()) {
-            output_added.wait(output_lock);
-            output_lock.unlock();
-            continue; // If woken because quitting, loop condition breaks.
-        }
-        std::shared_ptr<WriteColladaIn> v(vals.front());
-        vals.pop_front();
-        output_lock.unlock();
-        if (!writecollada(*v))
-            return 1;
-    }
+    InputParser<io::ParserPool, io::WriteColladaIn_Parser, io::WriteColladaIn>
+        ip(f);
+    int status = ip.ReadAndParse(writecollada);
     if (f)
         close(f);
-    return 0;
+    return status;
 }
 
 #else

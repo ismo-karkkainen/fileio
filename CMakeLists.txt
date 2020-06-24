@@ -69,16 +69,16 @@ endfunction()
 
 #### Main programs
 
-set(Programs readimage writeimage split2planes writecollada writegltf)
+set(Programs readimage writeimage split2planes writecollada writegltf writeglb)
 
 add_custom_target(parsers COMMENT "Generating types from README.md"
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/README.md
-    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io split2planes_io writecollada_io writegltf_io
+    COMMAND edicta -i ${CMAKE_CURRENT_LIST_DIR}/README.md -o pspecs readimage_io writeimage_io split2planes_io writecollada_io writegltf_io writeglb_io
     COMMAND specificjson --input pspecs
-    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp split2planes_io.cpp split2planes_io.hpp writecollada_io.cpp writecollada_io.hpp writegltf_io.cpp writegltf_io.hpp)
+    BYPRODUCTS readimage_io.cpp readimage_io.hpp writeimage_io.cpp writeimage_io.hpp split2planes_io.cpp split2planes_io.hpp writecollada_io.cpp writecollada_io.hpp writegltf_io.cpp writegltf_io.hpp writeglb_io.cpp writeglb_io.hpp)
 
 function(setup_main_program TGTNAME MAIN)
-    add_executable(${TGTNAME} ${MAIN} ${CMAKE_CURRENT_BINARY_DIR}/${TGTNAME}_io.cpp)
+    add_executable(${TGTNAME} ${MAIN} ${CMAKE_CURRENT_BINARY_DIR}/${TGTNAME}_io.cpp ${ARGN})
     add_dependencies(${TGTNAME} parsers)
     target_include_directories(${TGTNAME} SYSTEM PRIVATE /usr/local/include)
     target_include_directories(${TGTNAME} PRIVATE src)
@@ -93,10 +93,11 @@ function(setup_main_program TGTNAME MAIN)
 endfunction()
 
 setup_main_program(readimage src/readimage.cpp)
-setup_main_program(writeimage src/writeimage.cpp)
+setup_main_program(writeimage src/writeimage.cpp src/memimage.cpp)
 setup_main_program(split2planes src/split2planes.cpp)
 setup_main_program(writecollada src/writecollada.cpp)
 setup_main_program(writegltf src/writegltf.cpp)
+setup_main_program(writeglb src/writeglb.cpp src/memimage.cpp)
 
 install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 

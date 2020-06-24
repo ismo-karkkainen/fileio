@@ -76,26 +76,12 @@ static int writecollada(io::WriteColladaIn& Val) {
         << R"WRDAE(" source="#content-positions-array" stride="3">
 <param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/>
 </accessor></technique_common></source>)WRDAE";
-    if (Val.colorsGiven()) {
-        out << R"WRDAE(<source id="content-colors"><float_array id="content-colors-array" count=")WRDAE"
-            << Val.colors().size() * 3 << "\">\n";
-        for (auto& color : Val.colors())
-            out << color[0] << ' ' << color[1] << ' ' << color[2] << "\n";
-        out << "</float_array><technique_common><accessor count=\""
-            << Val.colors().size()
-            << R"WRDAE(" source="#content-colors-array" stride="3">
-<param name="R" type="float"/><param name="G" type="float"/><param name="B" type="float"/>
-</accessor></technique_common></source>)WRDAE";
-    }
     out << R"WRDAE(
 <vertices id="content-vertices"><input semantic="POSITION" source="#content-positions"/></vertices>
 <triangles material="material" count=")WRDAE"
         << triangles.size()
         << R"WRDAE(">
 <input offset="0" semantic="VERTEX" source="#content-vertices" set="0"/>)WRDAE";
-    if (Val.colorsGiven())
-        out << R"WRDAE(
-<input offset="0" semantic="COLOR" source="#content-colors" set="0"/>)WRDAE";
     for (auto& tri : triangles)
         out << "<p>" << tri[0] << ' ' << tri[1] << ' ' << tri[2] << "</p>\n";
     out << R"WRDAE(</triangles></mesh></geometry></library_geometries>

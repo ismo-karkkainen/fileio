@@ -1,8 +1,8 @@
 # FileIO
 
 Programs to read image files into arrays for use with datalackey. Programs
-to write image-like data from JSON arrays into images. Program to write a 3D
-model in COLLADA format. Other related tools.
+to write image-like data from JSON arrays into images. Programs to write a 3D
+model in GLB, glTF and COLLADA format. Other related tools.
 
 ## readimage
 
@@ -158,6 +158,39 @@ writegltf_io:
 ...
 ```
 
+## writeglb
+
+Writes given 3D model information as a binary glTF file.
+
+```
+---
+writeglb_io:
+  namespace: io
+  types:
+    WriteGLBIn:
+      filename:
+        description: Output file name.
+        format: String
+      vertices:
+        description: Array of arrays of 3 float x, y, and z coordinates.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+      coordinates:
+        description: Array of arrays of 2 float texture coordinate values.
+        format: [ ContainerStdVectorEqSize, StdVector, Float ]
+        required: false
+      texture:
+        description: Image that represents texture.
+        format: [ ContainerStdVectorEqSize, ContainerStdVectorEqSize, StdVector, Float ]
+        required: false
+      tristrips:
+        description: Array of arrays of indexes to top-level vertices array.
+        format: [ ContainerStdVector, StdVector, UInt32 ]
+  generate:
+    WriteGLBIn:
+      parser: true
+...
+```
+
 ## writecollada
 
 Writes given 3D model information as COLLADA file.
@@ -174,12 +207,6 @@ writecollada_io:
       vertices:
         description: Array of arrays of 3 float x, y, and z coordinates.
         format: [ ContainerStdVectorEqSize, StdVector, Float ]
-      colors:
-        description: |
-          Array of arrays of 3 float red, green, and blue values. Has to match
-          vertices in order and size.
-        format: [ ContainerStdVectorEqSize, StdVector, Float ]
-        required: false
       tristrips:
         description: Array of arrays of indexes to top-level vertices array.
         format: [ ContainerStdVector, StdVector, UInt32 ]

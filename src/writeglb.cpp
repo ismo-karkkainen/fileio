@@ -85,6 +85,8 @@ static size_t flatten(std::vector<float>& Out,
 
 #if !defined(UNITTEST)
 static int writeglb(io::WriteGLBIn& Val) {
+    if (Val.filename().substr(Val.filename().size() - 4) != ".glb")
+        Val.filename() += ".glb";
     Buffer<char> header, json_chunk, bin;
     header.write_u32(0x46546C67).write_u32(2);
     json_chunk.write_u32(0).write_u32(0x4E4F534A);
@@ -94,7 +96,7 @@ static int writeglb(io::WriteGLBIn& Val) {
 "meshes":[{"primitives":[{"attributes":{"POSITION":1)GLTF";
     if (Val.coordinatesGiven())
         json << R"GLTF(,"TEXCOORD_0":2)GLTF";
-    json << R"GLTF(},"indices":0)GLTF";
+    json << R"GLTF(},"indices":0,"mode":4)GLTF";
     if (Val.textureGiven())
         json << R"GLTF(,"material":0)GLTF";
     json << R"GLTF(})GLTF";
@@ -181,7 +183,7 @@ static int writeglb(io::WriteGLBIn& Val) {
 "textures":[{"sampler":0,"source":0}],
 "images":[{"bufferView":3,"mimeType":"image/png"}],
 "samplers":[{"magFilter":9729,"minFilter":9729,"wrapS":33071,"wrapT":33071}],
-"materials":[{"emissiveTexture":{"index":0,"texCoord":0}}
+"materials":[{"pbrMetallicRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0.0}}
 )GLTF";
     json << R"GLTF(],"buffers":[{"byteLength":)GLTF"
         << bin.size() - 8 << R"GLTF(}],"asset":{"version":"2.0"}})GLTF"

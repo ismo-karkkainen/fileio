@@ -27,6 +27,8 @@
 
 #if !defined(UNITTEST)
 static int writecollada(io::WriteColladaIn& Val) {
+    if (Val.filename().substr(Val.filename().size() - 4) != ".dae")
+        Val.filename() += ".dae";
     // Convert all tri-strips (and later fans) to triangles.
     std::vector<std::vector<std::uint32_t>> triangles;
     for (auto& strip : Val.tristrips())

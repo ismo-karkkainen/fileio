@@ -91,6 +91,8 @@ static void accessor_object(std::ofstream& Out, size_t Count,
 
 #if !defined(UNITTEST)
 static int writegltf(io::WriteglTFIn& Val) {
+    if (Val.filename().substr(Val.filename().size() - 5) != ".gltf")
+        Val.filename() += ".gltf";
     std::ofstream out(Val.filename().c_str());
     if (out.fail()) {
         std::cerr << "Failed to open: " << Val.filename() << std::endl;

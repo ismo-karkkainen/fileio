@@ -138,7 +138,7 @@ writegltf_io:
   types:
     WriteglTFIn:
       filename:
-        description: Output file name.
+        description: Output file name. ".gltf" is appended unless ends with it.
         format: String
       vertices:
         description: Array of arrays of 3 float x, y, and z coordinates.
@@ -169,7 +169,7 @@ writeglb_io:
   types:
     WriteGLBIn:
       filename:
-        description: Output file name.
+        description: Output file name. ".glb" is appended unless ends with it.
         format: String
       vertices:
         description: Array of arrays of 3 float x, y, and z coordinates.
@@ -202,7 +202,7 @@ writecollada_io:
   types:
     WriteColladaIn:
       filename:
-        description: Output file name.
+        description: Output file name. ".dae" is appended unless ends with it.
         format: String
       vertices:
         description: Array of arrays of 3 float x, y, and z coordinates.

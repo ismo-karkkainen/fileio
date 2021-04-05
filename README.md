@@ -4,6 +4,9 @@ Programs to read image files into arrays for use with datalackey. Programs
 to write image-like data from JSON arrays into images. Programs to write a 3D
 model in GLB, glTF and COLLADA format. Other related tools.
 
+The YAML in code blocks are I/O specifications for specificjson, extracted
+using edicta. See repositories parallel to this one.
+
 ## readimage
 
 Reads image file from given file and outputs as JSON array to standard output.
@@ -246,8 +249,8 @@ Install into location for which `#include <doctest/doctest.h>` works.
 You need cmake and a C++ compiler that supports 2017 standard. Assuming a build
 directory parallel to the fileio directory, you can use:
 
-    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=DEBUG ../fileio
-    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=RELEASE ../fileio
+    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug ../fileio
+    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ../fileio
     cmake -G Xcode
 
 You can disable TIFF support by setting NO_TIFF to any value, for example:

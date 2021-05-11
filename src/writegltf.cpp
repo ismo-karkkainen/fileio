@@ -2,7 +2,7 @@
 //  writegltf.cpp
 //
 //  Created by Ismo Kärkkäinen on 12.6.2020.
-//  Copyright © 2020 Ismo Kärkkäinen. All rights reserved.
+//  Copyright © 2020-2021 Ismo Kärkkäinen. All rights reserved.
 //
 // Licensed under Universal Permissive License. See License.txt.
 
@@ -75,7 +75,7 @@ static size_t flatten(std::vector<float>& Out,
 static void buffer_object(std::ofstream& Out,
     const std::vector<char>& Buffer, size_t Length)
 {
-    Out << R"GLTF("buffers":[{"uri":"data:application/octet-stream;base64,)GLTF"
+    Out << R"GLTF({"uri":"data:application/octet-stream;base64,)GLTF"
         << std::string(Buffer.begin(), Buffer.end())
         << R"GLTF(","byteLength":)GLTF" << Length << "}";
 }
@@ -122,11 +122,11 @@ static int writegltf(io::WriteglTFIn& Val) {
         index_len);
     out << R"GLTF("buffers":[)GLTF";
     buffer_object(out, buffer, index_len);
-    out << ",\n";
     std::vector<float> flat, vertex_max, vertex_min;
     size_t vertex_len = flatten(flat, vertex_min, vertex_max, Val.vertices());
     base64encode(buffer, reinterpret_cast<const char*>(&(flat.front())),
         vertex_len);
+    out << ",\n";
     buffer_object(out, buffer, vertex_len);
     size_t color_len = 0;
     std::vector<float> color_max, color_min;

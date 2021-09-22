@@ -9,7 +9,7 @@
 #include "writecollada_io.hpp"
 #if defined(UNITTEST)
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest/doctest.h>
+#include "doctest/doctest.h"
 #else
 #include "convenience.hpp"
 #endif

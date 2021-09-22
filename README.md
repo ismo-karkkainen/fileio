@@ -243,8 +243,8 @@ You need specificjson to generate source code from the specifications.
     https://github.com/ismo-karkkainen/edicta
     https://github.com/ismo-karkkainen/specificjson
 
-For unit tests, you need https://github.com/onqtam/doctest to compile them.
-Install into location for which `#include <doctest/doctest.h>` works.
+For unit tests, https://github.com/onqtam/doctest is included as git subtree
+with prefix doctest.
 
 You need cmake and a C++ compiler that supports 2017 standard. Assuming a build
 directory parallel to the fileio directory, you can use:

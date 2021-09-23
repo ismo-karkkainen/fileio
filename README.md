@@ -240,8 +240,8 @@ For TIFF support you need the libraries and development files. Same for PNG.
 You need edicta to extract the input and output specifications from this file.
 You need specificjson to generate source code from the specifications.
 
-    https://github.com/ismo-karkkainen/edicta
-    https://github.com/ismo-karkkainen/specificjson
+    gem install edicta
+    gem install specificjson
 
 For unit tests, https://github.com/onqtam/doctest is included as git subtree
 with prefix doctest.

@@ -15,4 +15,5 @@ if [ ! -x $1/test/port/$D ]; then
     exit 1
 fi
 echo $D
+uname -a
 $1/test/port/$D "$1"

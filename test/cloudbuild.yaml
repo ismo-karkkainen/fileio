@@ -1,0 +1,31 @@
+steps:
+- name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "sh"
+  args:
+  - "-c"
+  - "mkdir _logs && cp README.md _logs && cd _logs && git log -1 --format='%H' > commit.txt && git log -1 --format='%H %cI %s' > info.txt"
+- name: "$_REPO/fedora:latest"
+  entrypoint: "sh"
+  args: [ "-c", "$$PWD/test/cloudbuild.sh Fedora $$PWD" ]
+- name: "$_REPO/opensuse-tumbleweed:latest"
+  entrypoint: "sh"
+  args: [ "-c", "$$PWD/test/cloudbuild.sh 'openSUSE Tumbleweed' $$PWD" ]
+- name: "$_REPO/debian:latest"
+  entrypoint: "sh"
+  args: [ "-c", "$$PWD/test/cloudbuild.sh Debian $$PWD" ]
+- name: "$_REPO/ubuntu:latest"
+  entrypoint: "sh"
+  args: [ "-c", "$$PWD/test/cloudbuild.sh Ubuntu $$PWD" ]
+- name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "tar"
+  args:
+  - "-cvzf"
+  - "fileio.tgz"
+  - "_logs"
+- name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "gsutil"
+  args:
+  - "cp"
+  - "fileio.tgz"
+  - "gs://$_LOGS/fileio.tgz"
+timeout: "1800s"

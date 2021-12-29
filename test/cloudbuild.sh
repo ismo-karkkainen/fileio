@@ -19,8 +19,8 @@ Debian|Ubuntu)
 esac
 ) >/dev/null
 
-C="gem install edicta specificjson"
-echo "$C" && $C
+export C="gem install edicta specificjson"
+$C
 cd $R
 
 for X in clang++ g++
@@ -31,6 +31,7 @@ do
         echo "Build $(cat _logs/commit.txt) on $D using $X at $(date '+%Y-%m-%d %H:%M')"
         (
             set -eu
+            echo "$C"
             cd build
             CXX=$X cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
             make -j 2

@@ -11,7 +11,7 @@ Fedora)
     ;;
 openSUSE*)
     zypper refresh
-    zypper install -y libtiff-devel libpng-devel
+    zypper install -y libtiff-devel libpng-devel libtiff libpng
     ;;
 Debian|Ubuntu)
     apt-get update
@@ -55,7 +55,7 @@ do
             cd build
             CXX=$X cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
             make -j 2
-            make test
+            ARGS="--output-on-failure" make test
         )
         echo "Build and test exit code: $?"
     ) 2>&1 | tee -a "$R/_logs/$D-$X.log"

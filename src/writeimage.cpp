@@ -73,7 +73,7 @@ static int writeTIFF(const io::WriteImageIn::filenameType& filename,
                 static_cast<std::uint16_t>(other.size()), &other.front());
         }
     }
-    uint32 count = 0;
+    std::uint32_t count = 0;
     std::vector<unsigned char> buf;
     buf.reserve(image[0].size() * image[0][0].size() * ((8 < depth) ? 2 : 1));
     for (auto& line : image) {

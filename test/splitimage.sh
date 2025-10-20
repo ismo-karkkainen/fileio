@@ -12,7 +12,9 @@ D=$4
 I=$5
 SP=$6
 
-rwimageinputgen -i pspecs -w $W -h $H -c $C -d $D -f imagefile
+rwimageinputgen -i readimage_io.pspec -w $W -h $H -c $C -d $D -f imagefile
+rwimageinputgen -i writeimage_io.pspec -w $W -h $H -c $C -d $D -f imagefile
+rwimageinputgen -i split2planes_io.pspec -w $W -h $H -c $C -d $D -f imagefile
 
 $SP < split2planes_io.json > out.json
 

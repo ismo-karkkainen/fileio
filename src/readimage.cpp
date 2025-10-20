@@ -78,8 +78,8 @@ static int read_tiff(
     TIFF* t = TIFFOpen(filename.c_str(), "r");
     if (t == nullptr)
         return -1;
-    uint16 bits, samples;
-    uint32 width, height;
+    std::uint16_t bits, samples;
+    std::uint32_t width, height;
     TIFFGetField(t, TIFFTAG_BITSPERSAMPLE, &bits);
     if (bits != 8 && bits != 16) {
         TIFFClose(t);
@@ -89,7 +89,7 @@ static int read_tiff(
     TIFFGetField(t, TIFFTAG_IMAGEWIDTH, &width);
     TIFFGetField(t, TIFFTAG_IMAGELENGTH, &height);
     if (samples != 1) {
-        uint16 config;
+        std::uint16_t config;
         TIFFGetField(t, TIFFTAG_PLANARCONFIG, &config);
         if (config != PLANARCONFIG_CONTIG) {
             TIFFClose(t);
@@ -99,7 +99,7 @@ static int read_tiff(
     std::unique_ptr<void,void (*)(void*)> buffer(
         _TIFFmalloc(TIFFScanlineSize(t)), &_TIFFfree);
     image.resize(height);
-    uint32 row = 0;
+    std::uint32_t row = 0;
     for (auto& line : image) {
         line.resize(width);
         if (-1 == TIFFReadScanline(t, buffer.get(), row++))

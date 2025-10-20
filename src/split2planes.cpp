@@ -26,13 +26,14 @@
 
 static size_t plane_count(io::Split2PlanesIn::planesType& Planes) {
     size_t count = 0;
-    for (auto& row : Planes)
+    for (auto& row : Planes) {
         if (row.empty())
             continue;
-        else if (count == 0)
+        if (count == 0)
             count = row.front().size();
         else if (row.front().size() != count)
             throw "Third dimension size varies.";
+    }
     return count;
 }
 

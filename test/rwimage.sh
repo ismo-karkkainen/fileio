@@ -13,7 +13,9 @@ F=$5
 RI=$6
 WI=$7
 
-rwimageinputgen -i pspecs -w $W -h $H -c $C -d $D -f imagefile --format $F
+rwimageinputgen -i readimage_io.pspec -w $W -h $H -c $C -d $D -f imagefile --format $F
+rwimageinputgen -i writeimage_io.pspec -w $W -h $H -c $C -d $D -f imagefile --format $F
+rwimageinputgen -i split2planes_io.pspec -w $W -h $H -c $C -d $D -f imagefile --format $F
 
 $WI < writeimage_io.json
 $RI < readimage_io.json > out.json

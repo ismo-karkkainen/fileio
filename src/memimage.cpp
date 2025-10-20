@@ -53,6 +53,8 @@ static void destroy_info(png_infop p) {
 }
 
 static void append(png_structp Png, png_bytep Data, size_t Length) {
+    if (Length == 0)
+        return;
     std::vector<unsigned char>* out =
         reinterpret_cast<std::vector<unsigned char>*>(png_get_io_ptr(Png));
     out->resize(out->size() + Length);
@@ -88,8 +90,8 @@ std::vector<unsigned char> memoryPNG(
         color_type, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_BASE,
         PNG_FILTER_TYPE_BASE);
     png_write_info(png.get(), info.get());
-    std::vector<png_bytep> row_pointers;
-    row_pointers.reserve(Image.size());
+    std::vector<std::uint32_t> rows;
+    rows.reserve(Image.size());
     const size_t row_size = Image[0].size() * Image[0][0].size() * (Depth / 8);
     Buffer<char> buf;
     buf.reserve(Image.size() * row_size);
@@ -105,11 +107,12 @@ std::vector<unsigned char> memoryPNG(
                     buf << static_cast<char>((val >> 8) & 0xff)
                         << static_cast<char>(val & 0xff);
                 }
-        if (!row_pointers.empty())
-            row_pointers.push_back(row_pointers.back() + row_size);
-        else
-            row_pointers.push_back(
-                reinterpret_cast<png_bytep>(&buf.front()));
+        rows.push_back(rows.empty() ? 0 : rows.back() + row_size);
+    }
+    std::vector<png_bytep> row_pointers;
+    row_pointers.reserve(Image.size());
+    for (const auto idx : rows) {
+        row_pointers.push_back(reinterpret_cast<png_bytep>(&buf.front()) + idx);
     }
     png_write_image(png.get(), &row_pointers.front());
     png_write_end(png.get(), info.get());

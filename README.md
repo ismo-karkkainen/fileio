@@ -16,7 +16,7 @@ in output. If not given, the values are output as they are.
 Supported formats are PPM (P6-PPM), P3-PPM (text), TIFF (via libtiff), PNG
 (via libpng).
 
-```
+```YAML
 ---
 readimage_io:
   namespace: io
@@ -72,7 +72,7 @@ keep several images in same range with respect to each other.
 Supported formats are (P6-)PPM, P3-PPM, TIFF (via libtiff) and PNG (via libpng).
 Compression is not used.
 
-```
+```YAML
 ---
 writeimage_io:
   namespace: io
@@ -115,7 +115,7 @@ floats, named plane0, plane1, ... until all components of the third dimension
 are used. Each array representing the third dimension must have the same
 length as others.
 
-```
+```YAML
 ---
 split2planes_io:
   namespace: io
@@ -134,7 +134,7 @@ split2planes_io:
 
 Writes given 3D model information as glTF file.
 
-```
+```YAML
 ---
 writegltf_io:
   namespace: io
@@ -165,7 +165,7 @@ writegltf_io:
 
 Writes given 3D model information as a binary glTF file.
 
-```
+```YAML
 ---
 writeglb_io:
   namespace: io
@@ -198,7 +198,7 @@ writeglb_io:
 
 Writes given 3D model information as COLLADA file.
 
-```
+```YAML
 ---
 writecollada_io:
   namespace: io
@@ -253,8 +253,8 @@ directory parallel to the fileio directory, you can use:
     cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ../fileio
     cmake -G Xcode
 
-You can disable TIFF support by setting NO_TIFF to any value, for example:
-NO_TIFF=1 cmake ... To disable PNG support, set NO_PNG=1 when running cmake.
+You can disable TIFF support by setting `NO_TIFF` to any value, for example:
+`NO_TIFF=1 cmake ...` To disable PNG support, set `NO_PNG=1` when running cmake.
 
 To specify the compiler, set for example:
 
@@ -267,11 +267,11 @@ To build, assuming Unix Makefiles:
     make test
     sudo make install
 
-To run unit tests and to see the output you can "make unittest" and then run
+To run unit tests and to see the output you can `make unittest` and then run
 the resulting executable.
 
 # License
 
-Copyright © 2020-2021 Ismo Kärkkäinen
+Copyright © 2020-2025 Ismo Kärkkäinen
 
 Licensed under Universal Permissive License. See License.txt.

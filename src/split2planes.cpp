@@ -63,7 +63,7 @@ static int split2planes(io::Split2PlanesIn& Val) {
     }
     std::cout << '{';
     std::vector<std::vector<float>> plane;
-    std::vector<char> buffer;
+    std::vector<char> buffer(256, 0);
     for (size_t k = 0; k < count; ++k) {
         separate(plane, Val.planes(), k);
         std::cout << "\"plane" << k << "\":";

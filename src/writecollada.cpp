@@ -44,7 +44,6 @@ static int writecollada(io::WriteColladaIn& Val) {
         std::cerr << "Failed to open: " << Val.filename() << std::endl;
         return 1;
     }
-    std::vector<char> buffer;
     out << R"WRDAE(<?xml version="1.0" encoding="utf-8"?>
 <COLLADA xmlns="http://www.collada.org/2008/03/COLLADASchema" version="1.5.0">)WRDAE";
     if (Val.assetGiven())

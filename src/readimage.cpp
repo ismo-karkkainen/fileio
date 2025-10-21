@@ -54,8 +54,7 @@ typedef const char* (*ReadFunc)(const io::ReadImageIn::filenameType&, Image&);
 static std::string tiff_error;
 
 static void handle_tiff_error(const char* module, const char* fmt, va_list ap) {
-    std::vector<char> buffer;
-    buffer.resize(256);
+    std::vector<char> buffer(256, 0);
     tiff_error = module;
     tiff_error += ": ";
 retry:
@@ -480,7 +479,7 @@ static int read_image(io::ReadImageIn& Val) {
         for (auto& pixel : line)
             for (auto& component : pixel)
                 component = (component + shift) * scale;
-    std::vector<char> buffer;
+    std::vector<char> buffer(256, 0);
     Write(std::cout, out, buffer);
     return 0;
 }

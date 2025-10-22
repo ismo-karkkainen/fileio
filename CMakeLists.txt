@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.28)
 project(fileio CXX)
 
 #### Parameter set-up and library support detection.
@@ -43,7 +43,7 @@ endif()
 function(setup_tiff TGTNAME)
     if (TIFF_FOUND)
         target_include_directories(${TGTNAME} SYSTEM PRIVATE ${TIFF_INCLUDE_DIR})
-        target_link_libraries(${TGTNAME} PRIVATE ${TIFF_LIBRARY})
+        target_link_libraries(${TGTNAME} TIFF::TIFF)
     else()
         target_compile_definitions(${TGTNAME} PRIVATE NO_TIFF)
     endif()
@@ -60,7 +60,7 @@ endif()
 function(setup_png TGTNAME)
     if (PNG_FOUND)
         target_include_directories(${TGTNAME} SYSTEM PRIVATE ${PNG_INCLUDE_DIR})
-        target_link_libraries(${TGTNAME} PRIVATE ${PNG_LIBRARY})
+        target_link_libraries(${TGTNAME} PNG::PNG)
     else()
         target_compile_definitions(${TGTNAME} PRIVATE NO_PNG)
     endif()
@@ -69,7 +69,11 @@ endfunction()
 
 #### Main programs
 
-set(Programs readimage writeimage split2planes writecollada writegltf writeglb)
+set(Programs readimage writeimage split2planes writecollada writegltf)
+if (PNG_FOUND)
+    list(APPEND Programs writeglb)
+endif()
+
 
 function(setup_parser IO)
     add_custom_command(MAIN_DEPENDENCY ${CMAKE_CURRENT_LIST_DIR}/README.md
@@ -102,7 +106,7 @@ function(setup_main_program TGTNAME MAIN)
     target_compile_options(${TGTNAME} PRIVATE ${CxxStd})
     target_compile_options(${TGTNAME} PRIVATE ${BuildOptions})
     if (UNIX AND NOT APPLE)
-        target_link_libraries(${TGTNAME} PRIVATE Threads::Threads)
+        target_link_libraries(${TGTNAME} Threads::Threads)
     endif()
 endfunction()
 
@@ -111,7 +115,9 @@ setup_main_program(writeimage src/writeimage.cpp src/memimage.cpp)
 setup_main_program(split2planes src/split2planes.cpp)
 setup_main_program(writecollada src/writecollada.cpp)
 setup_main_program(writegltf src/writegltf.cpp)
-setup_main_program(writeglb src/writeglb.cpp src/memimage.cpp)
+if (PNG_FOUND)
+    setup_main_program(writeglb src/writeglb.cpp src/memimage.cpp)
+endif()
 
 install(TARGETS ${Programs} RUNTIME DESTINATION bin)
 

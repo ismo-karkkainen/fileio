@@ -13,6 +13,9 @@
 #else
 #include "convenience.hpp"
 #endif
+#if defined(NO_PNG)
+#error Texture requires PNG support.
+#endif
 #include "memimage.hpp"
 #include <iostream>
 #include <fcntl.h>

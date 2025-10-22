@@ -14,8 +14,8 @@ openSUSE*)
     zypper install -y libtiff-devel libpng-devel libtiff libpng
     ;;
 Debian|Ubuntu)
-    apt-get update
-    apt-get install -y libtiff-dev libpng-dev
+    DEBIAN_FRONTEND=noninteractive apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y libtiff-dev libpng-dev
     ;;
 esac
 ) >/dev/null
